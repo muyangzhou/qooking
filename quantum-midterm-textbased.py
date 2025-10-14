@@ -2,6 +2,14 @@ from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
 from qiskit_aer import Aer
 import numpy as np
 from qiskit.visualization import plot_histogram
+import time
+from enum import Enum
+import threading
+
+class QustomerStatus(Enum):
+    IN_LINE = 0
+    WAITING = 1
+    COMPLETE = 2
 
 class GameController:
     order_queue = []
@@ -47,12 +55,20 @@ class GameController:
     def qustomer_enter(cls, qustomer):
         print("Enter qustomer #" + str(qustomer.id))
         cls.order_queue.append(qustomer)
+        timer_thread = threading.Thread(target=qustomer.start_timer, args=(6, QustomerStatus.IN_LINE))
+        timer_thread.daemon = True # Allows main program to exit even if thread is running
+        timer_thread.start()
     
     @classmethod
     def take_order(cls):
         qustomer = cls.order_queue.pop(0)
         print("Order " + qustomer.order + " for qustomer #" + str(qustomer.id) + " taken.")
         cls.pickup_queue.append(qustomer)
+        qustomer.status = QustomerStatus.WAITING
+        # qustomer.start_timer(15, QustomerStatus.WAITING) # 15 seconds waiting for food
+        timer_thread = threading.Thread(target=qustomer.start_timer, args=(15, QustomerStatus.WAITING))
+        timer_thread.daemon = True # Allows main program to exit even if thread is running
+        timer_thread.start()
     
     @classmethod
     def valid_dish(cls, menu_item):
@@ -81,9 +97,20 @@ class GameController:
                 cls.pickup_queue.pop(i)
                 cls.ready_food.remove(qustomer.order)
                 print("served order " + qustomer.order + " to qustomer #" + str(qustomer.id))
+                qustomer.status = QustomerStatus.COMPLETE
                 return True
         print("No qustomer with this order in the pickup queue.")
         return False
+    
+    @classmethod
+    def handle_inline_fail(cls, qustomer):
+        cls.order_queue.remove(qustomer)
+        print("customer left before ordering. press enter to continue")
+    
+    @classmethod
+    def handle_waiting_fail(cls, qustomer):
+        cls.pickup_queue.remove(qustomer)
+        print("customer left before food was served. press enter to continue")
 
 class Qustomer:
     def __init__(self, n, order):
@@ -91,10 +118,21 @@ class Qustomer:
         self.order = order
         self.id = GameController.cur_qustomer_id
         GameController.cur_qustomer_id += 1
+        self.status = QustomerStatus.IN_LINE
         self.qc = QuantumCircuit(n, 1)
         print("qustomer created with", n, "qubits.")
         GameController.qustomer_enter(qustomer=self)  # Use class method
-        
+        # self.start_timer(6, QustomerStatus.IN_LINE) # 6 seconds in line
+    
+    def start_timer(self, seconds, status):
+        time.sleep(seconds)
+        # time's up
+        if self.status == QustomerStatus.IN_LINE and status == QustomerStatus.IN_LINE:
+            GameController.handle_inline_fail(qustomer = self)
+        elif self.status == QustomerStatus.WAITING and status == QustomerStatus.WAITING:
+            GameController.handle_waiting_fail(qustomer = self)
+        # else success
+    
     def draw(self, filename):
         self.qc.draw("mpl", filename="_midterm/" + filename)
         
