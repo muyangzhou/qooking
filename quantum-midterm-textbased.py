@@ -111,11 +111,20 @@ class GameController:
     def handle_waiting_fail(cls, qustomer):
         cls.pickup_queue.remove(qustomer)
         print("customer left before food was served. press enter to continue")
+    
+    @classmethod
+    def spawn_qustomer(cls, n, min_interval, max_interval):
+        while True:
+            qustomer = Qustomer(n)
+            time.sleep(np.random.randint(min_interval, max_interval))
+            
 
 class Qustomer:
-    def __init__(self, n, order):
+    def __init__(self, n):
         self.n = n
-        self.order = order
+        self.order = ""
+        for i in range(n):
+            self.order += str(np.random.randint(0, 2))
         self.id = GameController.cur_qustomer_id
         GameController.cur_qustomer_id += 1
         self.status = QustomerStatus.IN_LINE
@@ -139,10 +148,10 @@ class Qustomer:
 if __name__ == "__main__":
     print("program start")
     n = 3 # 2^n menu items
-    order = ""
-    for i in range(n):
-        order += str(np.random.randint(0, 2))
-    qustomer = Qustomer(n, order)
+    qustomer = Qustomer(n)
+    spawn_thread = threading.Thread(target=GameController.spawn_qustomer, args=(n, 2, 5))
+    spawn_thread.daemon = True
+    spawn_thread.start()
     # qustomer.draw("quantum-midterm-circuit.png")
     while True:
         GameController.show_game_state()
