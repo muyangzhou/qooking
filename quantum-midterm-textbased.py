@@ -12,6 +12,7 @@ class QustomerStatus(Enum):
     COMPLETE = 2
 
 class GameController:
+    debug_on = True
     order_queue = []
     pickup_queue = []
     ready_food = []
@@ -52,12 +53,19 @@ class GameController:
         cls.show_ready_food()
 
     @classmethod
+    def set_timer(cls, qustomer, seconds):
+        if not cls.debug_on:
+            timer_thread = threading.Thread(target=qustomer.start_timer, args=(seconds, qustomer.status))
+            timer_thread.daemon = True # allows main program to exit even if thread is running
+            timer_thread.start()
+
+    @classmethod
     def qustomer_enter(cls, qustomer):
         print("Enter qustomer #" + str(qustomer.id))
         cls.order_queue.append(qustomer)
-        timer_thread = threading.Thread(target=qustomer.start_timer, args=(6, QustomerStatus.IN_LINE))
-        timer_thread.daemon = True # Allows main program to exit even if thread is running
-        timer_thread.start()
+        cls.set_timer(qustomer, 6)
+        for i in range(qustomer.n):
+            qustomer.qc.h(i) # put customer order into superposition
     
     @classmethod
     def take_order(cls):
@@ -65,10 +73,7 @@ class GameController:
         print("Order " + qustomer.order + " for qustomer #" + str(qustomer.id) + " taken.")
         cls.pickup_queue.append(qustomer)
         qustomer.status = QustomerStatus.WAITING
-        # qustomer.start_timer(15, QustomerStatus.WAITING) # 15 seconds waiting for food
-        timer_thread = threading.Thread(target=qustomer.start_timer, args=(15, QustomerStatus.WAITING))
-        timer_thread.daemon = True # Allows main program to exit even if thread is running
-        timer_thread.start()
+        cls.set_timer(qustomer, 15)
     
     @classmethod
     def valid_dish(cls, menu_item):
