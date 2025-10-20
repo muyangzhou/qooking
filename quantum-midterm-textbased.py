@@ -123,6 +123,90 @@ class GameController:
             qustomer = Qustomer(n)
             time.sleep(np.random.randint(min_interval, max_interval))
             
+class SearchIngredients:
+    @classmethod
+    def search_ingreds(cls, order): # Grover's search
+        
+        # Unitary Oracle
+        a = [int(bit) for bit in order] # target item as list of bits
+        t = len(a) + 1 # total qubits, including ancilla
+        U = QuantumCircuit(t)
+
+        for i in range(1,t):
+            if a[i-1] == 0:
+                U.x(i)
+
+        U.mcx(list(range(1, t)), 0, mode="noancilla")
+
+        for i in range(1,t): # repeats n times
+            if a[i-1] == 0: # to check all indexes of a from 0 to n (not included) and not just from 1 to n
+                U.x(i)
+
+        # Diffusion Operator W
+        W = QuantumCircuit(t) # acts on input qubits only
+
+        for i in range(1, t):
+            W.h(i)
+
+        for i in range(1, t):
+            W.x(i)
+
+        W.mcp(np.pi,list(range(1,t-1)),n)
+
+        for i in range(1, t):
+            W.x(i)
+
+        for i in range(1, t):
+             W.h(i)
+
+        R = int(np.floor(np.pi*np.sqrt(2**n)/4)) # N is 2^n
+
+        qc = QuantumCircuit(t,n)
+        qc.x(0)
+        qc.h(0)
+        qc.barrier()
+
+        qc.h(range(1,t))
+        qc.barrier()
+
+        for i in range(R):
+            qc.compose(U,qubits=(list(range(t))),inplace=True)
+            qc.barrier()
+            qc.compose(W,qubits=(list(range(t))),inplace=True)
+            qc.barrier()
+
+        qc.h(0)
+        qc.x(0)
+        qc.barrier()
+
+        for i in range(1,t):
+            qc.measure(-i,-i)
+
+        backend = Aer.get_backend('qasm_simulator')
+        counts= backend.run(qc, shots=1024).result().get_counts(qc)
+
+        most_frequent_outcome = max(counts, key=counts.get)
+
+        big_endian = most_frequent_outcome[::-1]
+
+        # menu = ["apple pie", "pumpkin pie", "espresso", "chai latte", "pumpkin spice latte", 
+        # "cinnamon roll", "blueberry muffin", "banana bread"]
+
+        ingredients = {
+            "000": ["apple", "flour", "sugar", "cinnamon", "butter"],
+            "001": ["pumpkin", "flour", "sugar", "eggs", "cinnamon"],
+            "011": ["coffee beans", "water"],
+            "100": ["tea leaves", "milk", "sugar", "cinnamon"],
+            "101": ["pumpkin", "milk", "coffee beans", "sugar", "cinnamon"],
+            "110": ["flour", "sugar", "cinnamon", "butter", "eggs"],
+            "111": ["blueberry", "flour", "sugar", "eggs", "milk"],
+            "010": ["banana", "flour", "sugar", "eggs", "butter"]
+        }
+
+        for i in ingredients:
+            if i == big_endian[1:]:
+                print("Ingredients found for menu item " + order + ": " + ", ".join(ingredients[i]))
+                return ingredients[i]
 
 class Qustomer:
     def __init__(self, n):
@@ -136,6 +220,8 @@ class Qustomer:
         self.qc = QuantumCircuit(n, 1)
         print("qustomer created with", n, "qubits.")
         GameController.qustomer_enter(qustomer=self)  # Use class method
+        # print("qustomer created with", n, "qubits.")
+        # GameController.qustomer_enter(qustomer=self)  # Use class method
         # self.start_timer(6, QustomerStatus.IN_LINE) # 6 seconds in line
     
     def start_timer(self, seconds, status):
@@ -165,6 +251,7 @@ if __name__ == "__main__":
             GameController.take_order()
         elif choice == "cook":
             menu_item = input("which menu item (binary str, len = 3)? ")
+            # runs the cooking algorithm, divided into steps: searching for ingredients, putting ingredients together (simple)
             while not GameController.prepare_dish(menu_item):
                 menu_item = input("Invalid menu item. which menu item? ")
         elif choice == "serve":

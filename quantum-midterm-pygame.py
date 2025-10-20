@@ -27,6 +27,12 @@ question_text = "What is the capital of France?"
 correct_answer = "paris"
 time_limit_seconds = 5 
 
+menu = ["apple pie", "pumpkin pie", "espresso", "chai latte", "pumpkin spice latte", "cinnamon roll", "blueberry muffin", "banana bread"]
+
+# ingredients: milk, sugar, flour, eggs, cinnamon, pumpkin, apple, banana, blueberry, tea leaves, coffee
+# grover's search to find ingredients for a menu item
+# each searching action takes a click that makes the items appear
+# dragging and dropping ingredients to a bowl to prepare the dish, each drop of ingredient applies a set of gates for another algorithm step to "cook"
 
 user_input = ""
 game_state = "playing"  
