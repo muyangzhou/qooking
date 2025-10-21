@@ -5,6 +5,7 @@ from qiskit.visualization import plot_histogram
 import time
 from enum import Enum
 import threading
+import random
 
 class QustomerStatus(Enum):
     IN_LINE = 0
@@ -60,13 +61,21 @@ class GameController:
             timer_thread.start()
 
     @classmethod
-    def qustomer_enter(cls, qustomer):
+    def qustomer_enter(cls, qustomer, entangled):
         print("Enter qustomer #" + str(qustomer.id))
         cls.order_queue.append(qustomer)
         cls.set_timer(qustomer, 6)
         for i in range(qustomer.n):
             qustomer.qc.h(i) # put customer order into superposition
-    
+        if entangled:
+            if not qustomer.maximal:
+                # minimal bell state
+                for i in range(qustomer.n):
+                    qustomer.qc.x(n + i)
+            for i in range(qustomer.n):
+                qustomer.qc.cx(i, n + i)
+            print("Created " + ("maximally" if qustomer.maximal else "minimally") + " entangled qustomer #" + str(qustomer.id) + ".5")
+                    
     @classmethod
     def take_order(cls):
         qustomer = cls.order_queue.pop(0)
@@ -209,7 +218,9 @@ class SearchIngredients:
                 return ingredients[i]
 
 class Qustomer:
-    def __init__(self, n):
+    def __init__(self, n, entangled=False):
+        if entangled:
+            print("hi")
         self.n = n
         self.order = ""
         for i in range(n):
@@ -217,9 +228,13 @@ class Qustomer:
         self.id = GameController.cur_qustomer_id
         GameController.cur_qustomer_id += 1
         self.status = QustomerStatus.IN_LINE
-        self.qc = QuantumCircuit(n, 1)
+        if entangled:
+            self.qc = QuantumCircuit(2 * n, 1)
+            self.maximal = random.randint(0, 1) > 0.5 # random bool
+        else:
+            self.qc = QuantumCircuit(n, 1)
         print("qustomer created with", n, "qubits.")
-        GameController.qustomer_enter(qustomer=self)  # Use class method
+        GameController.qustomer_enter(self, entangled)  # Use class method
         # print("qustomer created with", n, "qubits.")
         # GameController.qustomer_enter(qustomer=self)  # Use class method
         # self.start_timer(6, QustomerStatus.IN_LINE) # 6 seconds in line
@@ -240,9 +255,12 @@ if __name__ == "__main__":
     print("program start")
     n = 3 # 2^n menu items
     qustomer = Qustomer(n)
-    spawn_thread = threading.Thread(target=GameController.spawn_qustomer, args=(n, 2, 5))
-    spawn_thread.daemon = True
-    spawn_thread.start()
+    qustomer = Qustomer(n, True)
+    if not GameController.debug_on:
+        spawn_thread = threading.Thread(target=GameController.spawn_qustomer, args=(n, 2, 5))
+        spawn_thread.daemon = True
+        spawn_thread.start()
+
     # qustomer.draw("quantum-midterm-circuit.png")
     while True:
         GameController.show_game_state()
