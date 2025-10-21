@@ -6,6 +6,7 @@ import time
 from enum import Enum
 import threading
 import random
+import math
 
 class QustomerStatus(Enum):
     IN_LINE = 0
@@ -83,6 +84,15 @@ class GameController:
         cls.pickup_queue.append(qustomer)
         qustomer.status = QustomerStatus.WAITING
         cls.set_timer(qustomer, 15)
+        # interference may occur at this time
+        if random.randint(0, 1) > 0.2:
+            print("A rat was making noise in the background and interefered with your ability to take the right order!")
+            theta = random.randrange(0, math.pi, 0.01) # interference amount is randomly generated
+            # should we make it part of the game for the player to infer if there is interference?
+            for i in range(qustomer.n):
+                qustomer.qc.p(theta, 0)
+            # this could be useful:
+            # print("Order for qustomer #" + str(qustomer.id) + " has been altered to " + qustomer.qc.measure_all().reverse_bits().to_dict()['
     
     @classmethod
     def valid_dish(cls, menu_item):
