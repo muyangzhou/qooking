@@ -1,4 +1,5 @@
-- disallow 111
+- disallow 111 - DONE
 - handle entanglement (prepare both dishes in order to be ready)
-- hide indeces and replace with buttons?
-- time countdown bar
+- qst recipe
+    - hide indeces and replace with buttons?
+- time countdown bar - DONE
