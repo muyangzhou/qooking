@@ -208,19 +208,19 @@ class GameController:
 
         cls.log_message(f"Served {selected_food} to qustomer #{qustomer_id} (wanted {qustomer_to_serve.order})")
 
-        with cls.lock:
-            if str(selected_food) == str(qustomer_to_serve.order) or qustomer_to_serve.order == "surprise me":
-                cls.log_message("Order served correctly!")
-                cls.successes += 1
-                if cls.successes >= 10:
-                    cls.log_message("Congratulations! You have successfully served 10 correct orders and won the game!")
-                    cls.game_over = True
-            else:
-                cls.log_message("Order served incorrectly </3")
-                cls.strikes += 1
-                if cls.strikes >= 3:
-                    cls.log_message("Game over! You have made 3 incorrect orders.")
-                    cls.game_over = True
+        # with cls.lock:
+        if str(selected_food) == str(qustomer_to_serve.order) or qustomer_to_serve.order == "surprise me":
+            cls.log_message("Order served correctly!")
+            cls.successes += 1
+            if cls.successes >= 10:
+                cls.log_message("Congratulations! You have successfully served 10 correct orders and won the game!")
+                cls.game_over = True
+        else:
+            cls.log_message("Order served incorrectly </3")
+            cls.strikes += 1
+            if cls.strikes >= 3:
+                cls.log_message("Game over! You have made 3 incorrect orders.")
+                cls.game_over = True
         
         qustomer_to_serve.status = QustomerStatus.COMPLETE
         return True
