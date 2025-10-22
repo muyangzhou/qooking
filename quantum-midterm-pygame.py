@@ -71,14 +71,14 @@ class GameController:
             timer_thread.start()
 
     @classmethod
-    def qustomer_enter(cls, qustomer, entangled):
+    def qustomer_enter(cls, qustomer,  counte):
         cls.log_message("Enter qustomer #" + str(qustomer.id))
         with cls.lock:
             cls.order_queue.append(qustomer)
         cls.set_timer(qustomer, 15) # Increased time for GUI
         for i in range(1, qustomer.n + 1):
             qustomer.qc.h(i)
-        if entangled:
+        if qustomer.entangled:
             if not qustomer.maximal:
                 for i in range(1, qustomer.n + 1):
                     qustomer.qc.x(qustomer.n + i)
@@ -355,7 +355,7 @@ class GameController:
             threading.Thread(target=Qustomer, args=(n, entangled, surprise), daemon=True).start()
             
 
-class Qustomer:
+class Qustomer: 
     def __init__(self, n, entangled=False, surprise_me=False):
         self.n = n
         self.order = ""
@@ -373,7 +373,7 @@ class Qustomer:
         self.status = QustomerStatus.IN_LINE
         if entangled:
             self.qc = QuantumCircuit(2 * n + 1, n)
-            self.maximal = random.randint(0, 1) > 0.5
+            self.maximal = random.randint(0, 1) > 0.5 # maximally or minimally entangles a pair of qustomers
         else:
             self.qc = QuantumCircuit(n + 1, n)
         
