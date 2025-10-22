@@ -7,6 +7,9 @@ from enum import Enum
 import threading
 import random
 import math
+from qiskit_algorithms import AmplificationProblem
+from qiskit_algorithms import Grover
+from qiskit.primitives import StatevectorSampler
 
 class QustomerStatus(Enum):
     IN_LINE = 0
@@ -29,7 +32,7 @@ class GameController:
             print("No orders in the queue.")
             return
         for i, qustomer in enumerate(cls.order_queue):
-            print(str(i + 1) + ". qustomer #" + str(qustomer.id))
+            print(str(i + 1) + ". qustomer #" + str(qustomer.id) + (" (party of 2)" if qustomer.entangled else " (party of 1)"))
 
     @classmethod
     def show_pickup_queue(cls):
@@ -117,6 +120,37 @@ class GameController:
         return True
     
     @classmethod
+    def search_ready_subset(cls, qustomer):
+        oracle = QuantumCircuit(3)
+        oracle.ccz(0, 1, 2)
+
+        theta = 2 * np.arccos(1 / np.sqrt(3))
+        state_preparation = QuantumCircuit(3)
+        state_preparation.ry(theta, 0)
+        state_preparation.ch(0, 1)
+        state_preparation.x(1)
+        state_preparation.h(2)
+
+        # we only care about the first two bits being in state 1, thus add both possibilities for the last qubit
+        problem = AmplificationProblem(
+            oracle, state_preparation=state_preparation, is_good_state=list(cls.ready_food.keys())
+        )
+
+        # state_preparation
+        print("state preparation circuit:")
+        # problem.grover_operator.state_preparation.draw(output="mpl")
+
+        grover = Grover(sampler=StatevectorSampler())
+        result = grover.amplify(problem)
+        print("Success!" if result.oracle_evaluation else "Failure!")
+        print("Top measurement:", result.top_measurement)
+
+        most_frequent_outcome = result.top_measurement
+
+        big_endian = most_frequent_outcome[::-1]
+        return str(big_endian)
+
+    @classmethod
     def search_ready(cls, qustomer): # Grover's search        
         # Unitary Oracle
         order = qustomer.order
@@ -125,7 +159,7 @@ class GameController:
         if order == "surprise me":
             m = len(cls.ready_food.keys())
             # do this
-            
+
         else:
             a = [int(bit) for bit in order] # target item as list of bits
             U = QuantumCircuit(t)
@@ -213,7 +247,7 @@ class GameController:
                 # if qustomer.order not in cls.ready_food:
                 #     print("this dish is not ready!")
                 #     return False
-                selected_food = cls.search_ready(qustomer)
+                selected_food = cls.search_ready_subset(qustomer)
                 menu = ["apple pie", "pumpkin pie", "espresso", "chai latte", "pumpkin spice latte", 
                     "cinnamon roll", "blueberry muffin", "banana bread"]
                 # print("Putting together the ingredients: " + ", ".join(ingredients))
@@ -262,6 +296,7 @@ class Qustomer:
             print("hi")
         self.n = n
         self.order = ""
+        self.entangled = entangled
         if not surprise_me:
             for i in range(n):
                 self.order += str(np.random.randint(0, 2))
@@ -296,9 +331,9 @@ class Qustomer:
 if __name__ == "__main__":
     print("program start")
     n = 3 # 2^n menu items
+    qustomer = Qustomer(n, True, True)
     qustomer = Qustomer(n)
     qustomer = Qustomer(n, True)
-    qustomer = Qustomer(n, True, True)
     if not GameController.debug_on:
         spawn_thread = threading.Thread(target=GameController.spawn_qustomer, args=(n, 2, 5))
         spawn_thread.daemon = True
