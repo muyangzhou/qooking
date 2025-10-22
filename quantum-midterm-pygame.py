@@ -30,9 +30,9 @@ class GameController:
     pickup_queue = []
     ready_food = {}
     cur_qustomer_id = 1
+    points = 0
     strikes = 0
-    successes = 0
-    
+
     log = ["Welcome to the Quantum Cafe!"] # GUI will display this
     lock = threading.RLock() # For thread-safe access to lists/dicts
     game_over = False
@@ -309,12 +309,13 @@ class GameController:
         # with cls.lock:
         if str(selected_food) == str(qustomer_to_serve.order) or "surprise me" in qustomer_to_serve.order:
             cls.log_message("Order served correctly!")
-            cls.successes += 1
-            if cls.successes >= 10:
+            cls.points += 1
+            if cls.points >= 10:
                 cls.log_message("Congratulations! You have successfully served 10 correct orders and won the game!")
                 cls.game_over = True
         else:
             cls.log_message("Order served incorrectly </3")
+            cls.points -= 1
             cls.strikes += 1
             if cls.strikes >= 3:
                 cls.log_message("Game over! You have made 3 incorrect orders.")
@@ -529,7 +530,7 @@ def run_game():
             ready_food_copy = dict(GameController.ready_food)
             log_copy = list(GameController.log)
             strikes_copy = GameController.strikes
-            successes_copy = GameController.successes # needs to update after each serve
+            points_copy = GameController.points # needs to update after each serve
 
         # --- Draw Queues and Food ---
         draw_text(screen, "Order Queue", title_font, (50, 20), COLOR_TITLE)
@@ -553,7 +554,7 @@ def run_game():
 
         # --- Draw Score and Log ---
         draw_text(screen, "Score", title_font, (1000, 20), COLOR_TITLE)
-        draw_text(screen, f"Successes: {GameController.successes}", main_font, (1000, 70), COLOR_SUCCESS)
+        draw_text(screen, f"Points: {GameController.points}", main_font, (1000, 70), COLOR_SUCCESS)
         draw_text(screen, f"Strikes: {GameController.strikes}", main_font, (1000, 110), COLOR_STRIKE)
 
         draw_text(screen, "Game Log", title_font, (50, 350), COLOR_TITLE)
@@ -606,8 +607,8 @@ def run_game():
             overlay.fill((100, 100, 100, 200)) # Semi-transparent grey
             screen.blit(overlay, (0, 0))
             
-            final_text = "You Win!" if successes_copy >= 10 else "Game Over!"
-            final_color = COLOR_SUCCESS if successes_copy >= 10 else COLOR_STRIKE
+            final_text = "You Win!" if points_copy >= 10 else "Game Over!"
+            final_color = COLOR_SUCCESS if points_copy >= 10 else COLOR_STRIKE
             
             text_surf = title_font.render(final_text, True, final_color)
             text_rect = text_surf.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2))

@@ -229,7 +229,6 @@ class GameController:
         #     "100": ["tea leaves", "milk", "sugar", "cinnamon"],
         #     "101": ["pumpkin", "milk", "coffee beans", "sugar", "cinnamon"],
         #     "110": ["flour", "sugar", "cinnamon", "butter", "eggs"],
-        #     "111": ["blueberry", "flour", "sugar", "eggs", "milk"],
         #     "010": ["banana", "flour", "sugar", "eggs", "butter"]
         # }
 
@@ -249,7 +248,7 @@ class GameController:
                 #     return False
                 selected_food = cls.search_ready_subset(qustomer)
                 menu = ["apple pie", "pumpkin pie", "espresso", "chai latte", "pumpkin spice latte", 
-                    "cinnamon roll", "blueberry muffin", "banana bread"]
+                    "cinnamon roll", "banana bread"]
                 # print("Putting together the ingredients: " + ", ".join(ingredients))
                 cls.pickup_queue.pop(i)
                 cls.ready_food[selected_food] -= 1
