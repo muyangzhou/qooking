@@ -32,7 +32,7 @@ class GameController:
     successes = 0
     
     log = ["Welcome to the Quantum Cafe!"] # GUI will display this
-    lock = threading.Lock() # For thread-safe access to lists/dicts
+    lock = threading.RLock() # For thread-safe access to lists/dicts
     game_over = False
 
     @classmethod
@@ -200,9 +200,10 @@ class GameController:
                 cls.pickup_queue.append(qustomer_to_serve)
             return False
 
-        # Consume the food item
+        # Consume the food item and 
         with cls.lock:
             cls.ready_food[selected_food] -= 1
+            
             if cls.ready_food[selected_food] == 0:
                 del cls.ready_food[selected_food]
 
@@ -265,7 +266,7 @@ class Qustomer:
             for i in range(n):
                 self.order += str(np.random.randint(0, 2))
         else:
-            self.order = "surprise me"
+            self.order = "surprise me <( • _ • )>"
         
         with GameController.lock:
             self.id = GameController.cur_qustomer_id
@@ -370,13 +371,13 @@ def run_game():
     COLOR_SUCCESS = (0, 128, 0) # Green
 
     # --- Initialize GUI Elements ---
-    btn_take_order = Button((50, 700, 200, 50), "Take Order", (0, 150, 0))
+    btn_take_order = Button((550, 400, 200, 50), "Take Order", (0, 150, 0))
     
-    input_qook = InputBox((350, 700, 140, 40), COLOR_TEXT)
-    btn_qook = Button((500, 700, 150, 40), "Qook Dish", (150, 0, 0))
+    input_qook = InputBox((550, 470, 200, 50), COLOR_TEXT)
+    btn_qook = Button((780, 470, 200, 50), "Let's Qook", (150, 0, 0))
     
-    input_serve = InputBox((750, 700, 140, 40), COLOR_TEXT)
-    btn_serve = Button((900, 700, 150, 40), "Serve (by ID)", (0, 0, 150))
+    input_serve = InputBox((550, 540, 200, 50), COLOR_TEXT)
+    btn_serve = Button((780, 540, 200, 50), "Serve", (0, 0, 150))
 
     # --- Start Backend Logic ---
     n = 3 # 2^n menu items
@@ -431,7 +432,7 @@ def run_game():
             ready_food_copy = dict(GameController.ready_food)
             log_copy = list(GameController.log)
             strikes_copy = GameController.strikes
-            successes_copy = GameController.successes
+            successes_copy = GameController.successes # needs to update after each serve
 
         # --- Draw Queues and Food ---
         draw_text(screen, "Order Queue", title_font, (50, 20), COLOR_TITLE)
@@ -441,10 +442,10 @@ def run_game():
             draw_text(screen, f"Qustomer #{qustomer.id} ({party})", main_font, (50, y_offset), COLOR_TEXT)
             y_offset += 35
 
-        draw_text(screen, "Pickup Queue", title_font, (400, 20), COLOR_TITLE)
+        draw_text(screen, "Pickup Queue", title_font, (370, 20), COLOR_TITLE)
         y_offset = 70
         for qustomer in pickup_queue_copy:
-            draw_text(screen, f"Qustomer #{qustomer.id} (Order: {qustomer.order})", main_font, (400, y_offset), COLOR_TEXT)
+            draw_text(screen, f"Qustomer #{qustomer.id} (Order: {qustomer.order})", main_font, (370, y_offset), COLOR_TEXT)
             y_offset += 35
 
         draw_text(screen, "Ready Food", title_font, (750, 20), COLOR_TITLE)
@@ -455,17 +456,43 @@ def run_game():
 
         # --- Draw Score and Log ---
         draw_text(screen, "Score", title_font, (1000, 20), COLOR_TITLE)
-        draw_text(screen, f"Successes: {successes_copy}", main_font, (1000, 70), COLOR_SUCCESS)
-        draw_text(screen, f"Strikes: {strikes_copy}", main_font, (1000, 110), COLOR_STRIKE)
+        draw_text(screen, f"Successes: {GameController.successes}", main_font, (1000, 70), COLOR_SUCCESS)
+        draw_text(screen, f"Strikes: {GameController.strikes}", main_font, (1000, 110), COLOR_STRIKE)
 
-        draw_text(screen, "Game Log", title_font, (400, 350), COLOR_TITLE)
-        log_rect = pygame.Rect(400, 400, 750, 280)
+        draw_text(screen, "Game Log", title_font, (50, 350), COLOR_TITLE)
+        log_rect = pygame.Rect(50, 400, 450, 280)
         pygame.draw.rect(screen, (255, 255, 255), log_rect) # White BG
         pygame.draw.rect(screen, (0,0,0), log_rect, 2) # Black border
-        y_offset = 405
+        y_offset = 420
+        line_height = 25
+        max_width = log_rect.width - 10 # padding
+
         for message in log_copy:
-            draw_text(screen, message, log_font, (405, y_offset), COLOR_TEXT)
-            y_offset += 25
+            words = message.split(' ')
+            line = ''
+            for word in words:
+                test_line = line + word + ' '
+                text_width, _ = log_font.size(test_line)
+                if text_width <= max_width:
+                    line = test_line
+                else:
+                    # draw the current line and start a new one
+                    draw_text(screen, line, log_font, (70, y_offset), COLOR_TEXT)
+                    y_offset += line_height
+                    line = word + ' '
+
+                # stop if text goes past bottom of log
+                if y_offset + line_height > log_rect.bottom:
+                    break
+
+            # draw last line of text
+            if y_offset + line_height <= log_rect.bottom:
+                draw_text(screen, line, log_font, (70, y_offset), COLOR_TEXT)
+                y_offset += line_height
+            
+            # stop if log height is exceeded
+            if y_offset + line_height > log_rect.bottom:
+                break
 
         # --- Draw Buttons and Inputs ---
         btn_take_order.draw(screen, main_font)
@@ -473,8 +500,8 @@ def run_game():
         btn_qook.draw(screen, main_font)
         input_serve.draw(screen, main_font)
         btn_serve.draw(screen, main_font)
-        draw_text(screen, "Dish (e.g., '010')", log_font, (350, 680), COLOR_TEXT)
-        draw_text(screen, "Qustomer ID", log_font, (750, 680), COLOR_TEXT)
+        draw_text(screen, "Dish ID", log_font, (1000, 490), COLOR_TEXT)
+        draw_text(screen, "Qustomer #", log_font, (1000, 560), COLOR_TEXT)
         
         # --- Handle Game Over Screen ---
         if GameController.game_over:
