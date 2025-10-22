@@ -13,7 +13,9 @@ from qiskit_algorithms import AmplificationProblem
 from qiskit_algorithms import Grover
 from qiskit.primitives import StatevectorSampler
 from qiskit.circuit.library import UnitaryGate
-from qiskit.quantum_info import Statevector, Operator
+from qiskit.quantum_info import Statevector
+from qiskit.circuit.library import ZGate
+
 
 # --- Backend Code (Modified for GUI) ---
 
@@ -97,11 +99,12 @@ class GameController:
         qustomer.status = QustomerStatus.WAITING
         cls.set_timer(qustomer, 30) # Increased time for GUI
         
-        if random.randint(0, 1) > 0.2:
-            cls.log_message("A rat interfered with the order!")
-            theta = random.uniform(0, math.pi)
-            for i in range(1, qustomer.n + 1):
-                qustomer.qc.p(theta, 0)
+        # removed interference for now
+        # if random.randint(0, 1) > 0.2:
+        #     cls.log_message("A rat interfered with the order!")
+        #     theta = random.uniform(0, math.pi)
+        #     for i in range(1, qustomer.n + 1):
+        #         qustomer.qc.p(theta, 0)
     
     @classmethod
     def valid_dish(cls, menu_item):
@@ -135,41 +138,135 @@ class GameController:
 
     @classmethod
     def search_ready_subset(cls, qustomer):
+        # n = 3
+        # oracle = QuantumCircuit(n)
+        # oracle.ccz(0, 1, 2)
+
+        # # --- Define subset
+        # subset = []
+        # print("keys: " + str(cls.ready_food.keys()))
+        # for key in cls.ready_food.keys():
+        #     subset.append(int(key, 2))
+        # amps = np.zeros(2**n, dtype=complex)
+        # amps[subset] = 1/np.sqrt(len(subset))
+        # amps = amps / np.linalg.norm(amps)
+        # subset_bitstring = []
+        # for i in subset:
+        #     subset_bitstring.append(bin(i)[2:].zfill(n))
+        # print(subset_bitstring)
+
+        # psi = Statevector(amps)
+        # U = cls.state_to_unitary(amps)
+        # Um = QuantumCircuit(n)
+        # Um.append(UnitaryGate(U), range(n))
+
+        # problem = AmplificationProblem(
+        #     oracle, state_preparation=Um, is_good_state=(subset_bitstring if len(subset_bitstring) else True)
+        # )
+
+        # grover = Grover(sampler=StatevectorSampler())
+        # result = grover.amplify(problem)
+
+        # print("Top measurement:", result.top_measurement)
+        # return result.top_measurement
+
+        # --- 1. Define the Problem ---
         n = 3
-        oracle = QuantumCircuit(n)
-        oracle.ccz(0, 1, 2)
+        all_states = 2**n
 
-        # --- Define subset
-        subset = []
-        print("keys: " + str(cls.ready_food.keys()))
-        for key in cls.ready_food.keys():
-            subset.append(int(key, 2))
-        # subset = list(bin(int()))  # |000>, |001>, |010>, |101|
-        amps = np.zeros(2**n, dtype=complex)
-        amps[subset] = 1/np.sqrt(len(subset))
-        amps = amps / np.linalg.norm(amps)
-        subset_bitstring = []
-        for i in subset:
-            subset_bitstring.append(bin(i)[2:].zfill(n))
-        print(subset_bitstring)
+        # --- A. Define the Target (Needle) ---
+        # The *specific item* we want to find
+        target_state = '100'
+        M = 1
 
-        # --- Build U_m: a full unitary mapping |000> -> |ψ_subset>
-        # Use the "Statevector(amps)" to construct a proper unitary via Householder reflection
-        psi = Statevector(amps)
-        U = cls.state_to_unitary(amps)
-        Um = QuantumCircuit(n)
-        Um.append(UnitaryGate(U), range(n))
+        # --- B. Define the Search Space (Haystack) ---
+        # The subset we are searching *within*
+        subset_bitstrings = ['000', '001', '010', '011', '100', '101', '110']
+        k = len(subset_bitstrings)
 
-        # --- Grover problem setup
+        # # Sanity check: our target MUST be in our subset
+        # if target_state not in subset_bitstrings:
+        #     raise ValueError("The target item is not in the search space subset.")
+
+        print(f"Search Space (k): {k} items {subset_bitstrings}")
+        print(f"Target (M): {M} item '{target_state}'\n")
+
+
+        # --- 2. Build the Oracle (U_f) ---
+        # This circuit marks the *target* ('101')
+        oracle = QuantumCircuit(n, name="U_f (marks 101)")
+        mcz = ZGate().control(n - 1)
+
+        # '101' -> q2=1, q1=0, q0=1. Flip the '0' on q1
+        target_reversed = target_state[::-1]
+        for i in range(n):
+            if target_reversed[i] == '0':
+                oracle.x(i)
+                
+        oracle.append(mcz, list(range(n)))
+
+        for i in range(n):
+            if target_reversed[i] == '0':
+                oracle.x(i)
+                
+        # print("Oracle Circuit:")
+        # print(oracle.draw())
+
+
+        # --- 3. Build the State Preparation (A or Um) ---
+        # This circuit prepares the *subset* (haystack)
+        # We use the reliable method from our previous conversation
+
+        # Create the target statevector for the k=7 subset
+        target_vector = np.zeros(all_states)
+        for bitstring in subset_bitstrings:
+            index = int(bitstring, 2)
+            target_vector[index] = 1 / np.sqrt(k)
+
+        # Create the circuit Um with the initialize instruction
+        Um_init = QuantumCircuit(n)
+        Um_init.initialize(target_vector, range(n))
+
+        # Decompose and remove the non-unitary 'reset' gate
+        Um_decomposed = Um_init.decompose()
+        Um = QuantumCircuit(n, name="Um (prepares k=7)")
+        for instruction in Um_decomposed.data:
+            if instruction.operation.name != 'reset':
+                Um.append(instruction)
+
+        # print("\nState Prep Circuit (Um):")
+        # print(Um.draw())
+                
+        # --- 4. Calculate Iterations & Build Problem ---
+        # R = floor( (pi/4) * sqrt(k/M) )
+        R = int(np.floor((np.pi / 4) * np.sqrt(k / M)))
+        print(f"Optimal Iterations (R): {R}\n")
+
+        # We provide the oracle (for the needle) and
+        # the state_preparation (for the haystack)
         problem = AmplificationProblem(
-            oracle, state_preparation=Um, is_good_state=(subset_bitstring if len(subset_bitstring) else True)
+            oracle=oracle,
+            state_preparation=Um,
+            is_good_state=None  # We use the oracle, so this isn't needed
         )
 
-        grover = Grover(sampler=StatevectorSampler())
+        # --- 5. Run Grover ---
+        # We MUST tell Grover how many iterations to run
+        grover = Grover(
+            sampler=StatevectorSampler(),
+            iterations=R  # Use our calculated 2 iterations
+        )
         result = grover.amplify(problem)
 
-        print("Top measurement:", result.top_measurement)
-        return result.top_measurement
+        # --- 6. Show Results ---
+        print(f"Top measurement: {result.top_measurement}")
+
+        # Plot the results
+        formatted_counts = {}
+        for bitstring, prob in result.circuit_results[0].items():
+            formatted_counts[bitstring] = prob
+
+        plot_histogram(formatted_counts, title="Found '101' in 7-item Subset")
 
     @classmethod
     def serve_food(cls, qustomer_index):
@@ -210,7 +307,7 @@ class GameController:
         cls.log_message(f"Served {selected_food} to qustomer #{qustomer_id} (wanted {qustomer_to_serve.order})")
 
         # with cls.lock:
-        if str(selected_food) == str(qustomer_to_serve.order) or qustomer_to_serve.order == "surprise me":
+        if str(selected_food) == str(qustomer_to_serve.order) or "surprise me" in qustomer_to_serve.order:
             cls.log_message("Order served correctly!")
             cls.successes += 1
             if cls.successes >= 10:
