@@ -108,7 +108,7 @@ class GameController:
     
     @classmethod
     def valid_dish(cls, menu_item):
-        if len(menu_item) != 3 or any(c not in '01' for c in menu_item):
+        if len(menu_item) != 3 or any(c not in '01' for c in menu_item) or menu_item == '111':
             return False
         return True
     
@@ -138,135 +138,71 @@ class GameController:
 
     @classmethod
     def search_ready_subset(cls, qustomer):
-        # n = 3
-        # oracle = QuantumCircuit(n)
-        # oracle.ccz(0, 1, 2)
+        n = qustomer.n
+        all_states = 2**n - 0
 
-        # # --- Define subset
-        # subset = []
-        # print("keys: " + str(cls.ready_food.keys()))
-        # for key in cls.ready_food.keys():
-        #     subset.append(int(key, 2))
-        # amps = np.zeros(2**n, dtype=complex)
-        # amps[subset] = 1/np.sqrt(len(subset))
-        # amps = amps / np.linalg.norm(amps)
-        # subset_bitstring = []
-        # for i in subset:
-        #     subset_bitstring.append(bin(i)[2:].zfill(n))
-        # print(subset_bitstring)
-
-        # psi = Statevector(amps)
-        # U = cls.state_to_unitary(amps)
-        # Um = QuantumCircuit(n)
-        # Um.append(UnitaryGate(U), range(n))
-
-        # problem = AmplificationProblem(
-        #     oracle, state_preparation=Um, is_good_state=(subset_bitstring if len(subset_bitstring) else True)
-        # )
-
-        # grover = Grover(sampler=StatevectorSampler())
-        # result = grover.amplify(problem)
-
-        # print("Top measurement:", result.top_measurement)
-        # return result.top_measurement
-
-        # --- 1. Define the Problem ---
-        n = 3
-        all_states = 2**n
-
-        # --- A. Define the Target (Needle) ---
-        # The *specific item* we want to find
-        target_state = '100'
+        # target start (qustomer order)
+        # set this to 111 if qustomer has "surprise me" order (grover's algo with result in uniform superposition)
+        target_state = qustomer.order if "surprise me" in qustomer.order else '111'
         M = 1
 
-        # --- B. Define the Search Space (Haystack) ---
-        # The subset we are searching *within*
-        subset_bitstrings = ['000', '001', '010', '011', '100', '101', '110']
+        # ready food
+        subset_bitstrings = list(cls.ready_food.keys())
         k = len(subset_bitstrings)
-
-        # # Sanity check: our target MUST be in our subset
-        # if target_state not in subset_bitstrings:
-        #     raise ValueError("The target item is not in the search space subset.")
 
         print(f"Search Space (k): {k} items {subset_bitstrings}")
         print(f"Target (M): {M} item '{target_state}'\n")
 
-
-        # --- 2. Build the Oracle (U_f) ---
-        # This circuit marks the *target* ('101')
-        oracle = QuantumCircuit(n, name="U_f (marks 101)")
+        # oracle that marks target
+        oracle = QuantumCircuit(n, name="U_f")
         mcz = ZGate().control(n - 1)
-
-        # '101' -> q2=1, q1=0, q0=1. Flip the '0' on q1
         target_reversed = target_state[::-1]
         for i in range(n):
             if target_reversed[i] == '0':
                 oracle.x(i)
-                
         oracle.append(mcz, list(range(n)))
-
         for i in range(n):
             if target_reversed[i] == '0':
                 oracle.x(i)
                 
-        # print("Oracle Circuit:")
-        # print(oracle.draw())
-
-
-        # --- 3. Build the State Preparation (A or Um) ---
-        # This circuit prepares the *subset* (haystack)
-        # We use the reliable method from our previous conversation
-
-        # Create the target statevector for the k=7 subset
+        # state preperation: the pool to examine
         target_vector = np.zeros(all_states)
         for bitstring in subset_bitstrings:
             index = int(bitstring, 2)
             target_vector[index] = 1 / np.sqrt(k)
-
-        # Create the circuit Um with the initialize instruction
         Um_init = QuantumCircuit(n)
         Um_init.initialize(target_vector, range(n))
-
-        # Decompose and remove the non-unitary 'reset' gate
         Um_decomposed = Um_init.decompose()
         Um = QuantumCircuit(n, name="Um (prepares k=7)")
         for instruction in Um_decomposed.data:
             if instruction.operation.name != 'reset':
                 Um.append(instruction)
 
-        # print("\nState Prep Circuit (Um):")
-        # print(Um.draw())
-                
-        # --- 4. Calculate Iterations & Build Problem ---
-        # R = floor( (pi/4) * sqrt(k/M) )
+        # calculate number of iterations
         R = int(np.floor((np.pi / 4) * np.sqrt(k / M)))
         print(f"Optimal Iterations (R): {R}\n")
 
-        # We provide the oracle (for the needle) and
-        # the state_preparation (for the haystack)
+        # execute amplification problem
         problem = AmplificationProblem(
             oracle=oracle,
             state_preparation=Um,
             is_good_state=None  # We use the oracle, so this isn't needed
         )
 
-        # --- 5. Run Grover ---
-        # We MUST tell Grover how many iterations to run
+        # run grover
         grover = Grover(
             sampler=StatevectorSampler(),
             iterations=R  # Use our calculated 2 iterations
         )
-        result = grover.amplify(problem)
+        result = grover.amplify(problem) # idk how this works actually
 
-        # --- 6. Show Results ---
+        # debug
         print(f"Top measurement: {result.top_measurement}")
-
-        # Plot the results
         formatted_counts = {}
         for bitstring, prob in result.circuit_results[0].items():
             formatted_counts[bitstring] = prob
-
-        plot_histogram(formatted_counts, title="Found '101' in 7-item Subset")
+        # plot_histogram(formatted_counts)
+        return result.top_measurement
 
     @classmethod
     def serve_food(cls, qustomer_index):
@@ -360,8 +296,12 @@ class Qustomer:
         self.order = ""
         self.entangled = entangled
         if not surprise_me:
-            for i in range(n):
-                self.order += str(np.random.randint(0, 2))
+            while True:
+                self.order = ""
+                for i in range(n):
+                    self.order += str(np.random.randint(0, 2))
+                if self.order != "111":
+                    break
         else:
             self.order = "surprise me <( • _ • )>"
         
