@@ -33,6 +33,16 @@ class GameController:
     cur_qustomer_id = 1
     points = 0
     strikes = 0
+
+    BITSTRING_TO_ITEM = {
+        "000": "apple pie",
+        "001": "pumpkin pie",
+        "010": "banana bread",
+        "011": "coffee",
+        "100": "chai latte",
+        "101": "pumpkin spice latte",
+        "110": "cinnamon roll"
+    }
     recipes_key = {
              "000": ["apple", "flour", "sugar", "cinnamon", "butter"],
              "001": ["pumpkin", "flour", "sugar", "eggs", "cinnamon"],
@@ -59,7 +69,7 @@ class GameController:
     expected_density_matrices = {}
 
 
-    log = ["Welcome to the Quantum Cafe!"] # GUI will display this
+    log = ["Welcome to the Quantum Qafe!"] # GUI will display this
     lock = threading.RLock() # For thread-safe access to lists/dicts
     game_over = False
 
@@ -248,6 +258,15 @@ class GameController:
     # collapse superposition of qustomer with qustomer_index
     @classmethod
     def measure_order(cls, qustomer_index):
+        BITSTRING_TO_ITEM = {
+        "000": "apple pie",
+        "001": "pumpkin pie",
+        "010": "banana bread",
+        "011": "coffee",
+        "100": "chai latte",
+        "101": "pumpkin spice latte",
+        "110": "cinnamon roll"
+    }
         if not qustomer_index.isdigit():
             cls.log_message(f"Invalid qustomer index: {qustomer_index}. Must be a number.")
             return False
@@ -312,8 +331,13 @@ class GameController:
                     
                     # Store collapsed orders
                     qustomer_to_measure.collapsed_order = order_A
+                    qustomer_to_measure.item_name = BITSTRING_TO_ITEM.get(order_A, "unknown item")
+                    cls.log_message("Item name assigned:", qustomer_to_measure.item_name)
+
                     partner.collapsed_order = order_B
-                    
+                    partner.item_name = BITSTRING_TO_ITEM.get(order_B, "unknown item")
+                    cls.log_message("Item name assigned:", partner.item_name)
+
                     # --- REQUEST 1 LOGIC ---
                     # Reveal *this* customer's order
                     qustomer_to_measure.order_revealed = True
@@ -455,7 +479,8 @@ class GameController:
                 cls.log_message("Order served incorrectly </3")
                 cls.points -= 1
                 cls.strikes += 1
-                if cls.strikes >= 3:
+                if cls.points < 0 or cls.strikes >= 3:
+                    cls.log_message("You have no more points left." if cls.points < 0 else "")
                     cls.log_message("Game over! You have made 3 incorrect orders.")
                     cls.game_over = True
         
@@ -666,18 +691,18 @@ def run_game():
     BAR_HEIGHT = 15
 
     # --- MODIFIED: GUI Elements ---
-    btn_take_order = Button((550, 400, 200, 50), "Take Order", (0, 150, 0))
+    btn_take_order = Button((550, 470, 200, 50), "Take Order", (0, 150, 0))
     
     # New Measure button
-    input_measure = InputBox((550, 470, 200, 50), COLOR_TEXT)
-    btn_measure = Button((780, 470, 200, 50), "Measure Order", (200, 100, 0))
+    input_measure = InputBox((550, 550, 200, 50), COLOR_TEXT)
+    btn_measure = Button((780, 550, 200, 50), "Measure Order", (200, 100, 0))
     
-    input_qook = InputBox((550, 540, 200, 50), COLOR_TEXT)
-    btn_qook = Button((780, 540, 200, 50), "Let's Qook", (150, 0, 0))
+    input_qook = InputBox((550, 630, 200, 50), COLOR_TEXT)
+    btn_qook = Button((780, 630, 200, 50), "Let's Qook", (150, 0, 0))
     
     # Moved Serve button
-    input_serve = InputBox((550, 610, 200, 50), COLOR_TEXT)
-    btn_serve = Button((780, 610, 200, 50), "Serve", (0, 0, 150))
+    input_serve = InputBox((550, 710, 200, 50), COLOR_TEXT)
+    btn_serve = Button((780, 710, 200, 50), "Serve", (0, 0, 150))
 
     # backend logic
     n = 3 # 2^n menu items
@@ -758,24 +783,26 @@ def run_game():
             
             y_offset += 35 
 
-        draw_text(screen, "Pickup Queue", title_font, (370, 20), COLOR_TITLE)
+        draw_text(screen, "Pickup Queue", title_font, (390, 20), COLOR_TITLE)
         y_offset = 70
         for qustomer in pickup_queue_copy:
             order_str = qustomer.order
             if qustomer.entangled_partner:
-                if qustomer.order_revealed:
-                    order_str = f"Collapsed to {qustomer.collapsed_order}"
+                if qustomer.order_revealed: 
+                    item_display = getattr(qustomer, "item_name", qustomer.collapsed_order)
+                    order_str = f"Collapsed to {item_display}" 
                 elif qustomer.is_collapsed: # Collapsed but not revealed (2nd partner)
                     order_str = ("Maximally" if qustomer.maximal else "Minimally") + f" entangled with #{qustomer.entangled_partner.id}"
                 else: # Not yet collapsed
                     order_str = qustomer.order # "Entangled w/ #X"
             elif qustomer.is_collapsed:
-                 order_str = qustomer.order
+                 # order_str = qustomer.order
+                 order_str = getattr(qustomer, "item_name", qustomer.order)
             else:
                  # Standard or Surprise Me, not yet measured
                  order_str = f"In Superposition"
             
-            draw_text(screen, f"Qustomer #{qustomer.id} (Order: {order_str})", main_font, (370, y_offset), COLOR_TEXT)
+            draw_text(screen, f"Qustomer #{qustomer.id} (Order: {order_str})", main_font, (390, y_offset), COLOR_TEXT)
             
             bar_y = y_offset + 30
             if qustomer.timer_active:
@@ -788,28 +815,46 @@ def run_game():
                 if percent_left < 0.5: color = COLOR_BAR_MED
                 if percent_left < 0.2: color = COLOR_BAR_LOW
                 
-                pygame.draw.rect(screen, COLOR_BAR_BG, (370, bar_y, BAR_MAX_WIDTH, BAR_HEIGHT))
-                pygame.draw.rect(screen, color, (370, bar_y, bar_current_width, BAR_HEIGHT))
+                pygame.draw.rect(screen, COLOR_BAR_BG, (390, bar_y, BAR_MAX_WIDTH, BAR_HEIGHT))
+                pygame.draw.rect(screen, color, (390, bar_y, bar_current_width, BAR_HEIGHT))
                 y_offset += 25
             
             y_offset += 35 
 
-        draw_text(screen, "Ready Food", title_font, (750, 20), COLOR_TITLE)
+        draw_text(screen, "Ready Food", title_font, (820, 20), COLOR_TITLE)
         y_offset = 70
         for item, count in ready_food_copy.items():
-            draw_text(screen, f"Dish {item}: {count} servings", main_font, (750, y_offset), COLOR_TEXT)
+            draw_text(screen, f"Dish {item}: {count} servings", main_font, (820, y_offset), COLOR_TEXT)
             y_offset += 35
 
-        # --- Draw Score and Log ---
-        draw_text(screen, "Score", title_font, (1000, 20), COLOR_TITLE)
-        draw_text(screen, f"Points: {points_copy}", main_font, (1000, 70), COLOR_SUCCESS)
-        draw_text(screen, f"Strikes: {strikes_copy}", main_font, (1000, 110), COLOR_STRIKE)
+        # --- Draw Ingredients Legend ---
+        draw_text(screen, "Ingredients", title_font, (50, 270), COLOR_TITLE)
+        draw_text(screen, "Seasonal Items", main_font, (50, 310), COLOR_TEXT)
+        draw_text(screen, "apple", main_font, (250, 310), COLOR_TEXT)
+        draw_text(screen, "banana", main_font, (330, 310), COLOR_TEXT)
+        draw_text(screen, "chai", main_font, (450, 310), COLOR_TEXT)
+        draw_text(screen, "cinnamon", main_font, (530, 310), COLOR_TEXT)
+        draw_text(screen, "coffee", main_font, (670, 310), COLOR_TEXT)
+        draw_text(screen, "pumpkin", main_font, (760, 310), COLOR_TEXT)
 
-        draw_text(screen, "Game Log", title_font, (50, 350), COLOR_TITLE)
-        log_rect = pygame.Rect(50, 400, 450, 280)
+
+        draw_text(screen, "Baking", main_font, (50, 350), COLOR_TEXT)
+        draw_text(screen, "butter", main_font, (250, 350), COLOR_TEXT)
+        draw_text(screen, "eggs", main_font, (330, 350), COLOR_TEXT)
+        draw_text(screen, "flour", main_font, (410, 350), COLOR_TEXT)
+        draw_text(screen, "milk", main_font, (490, 350), COLOR_TEXT)
+        draw_text(screen, "sugar", main_font, (570, 350), COLOR_TEXT)
+
+        # --- Draw Score and Log ---
+        draw_text(screen, "Score", title_font, (1070, 20), COLOR_TITLE)
+        draw_text(screen, f"Points: {points_copy}", main_font, (1070, 70), COLOR_SUCCESS)
+        draw_text(screen, f"Strikes: {strikes_copy}", main_font, (1070, 110), COLOR_STRIKE)
+
+        draw_text(screen, "Game Log", title_font, (50, 430), COLOR_TITLE)
+        log_rect = pygame.Rect(50, 470, 450, 280)
         pygame.draw.rect(screen, (255, 255, 255), log_rect)
         pygame.draw.rect(screen, (0,0,0), log_rect, 2)
-        y_offset = 420
+        y_offset = 490
         line_height = 25
         max_width = log_rect.width - 40 
 
@@ -845,9 +890,9 @@ def run_game():
         input_serve.draw(screen, main_font)
         btn_serve.draw(screen, main_font)
         
-        draw_text(screen, "Qustomer #", log_font, (550, 525), COLOR_TEXT) # Label for measure
-        draw_text(screen, "Dish ID", log_font, (550, 595), COLOR_TEXT) 
-        draw_text(screen, "Qustomer #", log_font, (550, 665), COLOR_TEXT) # Label for serve
+        draw_text(screen, "Qustomer #", log_font, (550, 605), COLOR_TEXT) # Label for measure
+        draw_text(screen, "Dish ID", log_font, (550, 685), COLOR_TEXT) 
+        draw_text(screen, "Qustomer #", log_font, (550, 765), COLOR_TEXT) # Label for serve
         # --- END MODIFIED ---
         
         # --- Handle Game Over Screen ---
