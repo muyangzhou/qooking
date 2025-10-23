@@ -251,10 +251,14 @@ class GameController:
                     qc.measure(list(range(1, 2 * n + 1)), list(range(0, 2 * n)))
                     
                     backend = Aer.get_backend('qasm_simulator')
-                    counts = backend.run(qc, shots=1).result().get_counts(qc)
-                    measurement = list(counts.keys())[0]
-                    measurement_big_endian = measurement[::-1]
+                    while True:
+                        counts = backend.run(qc, shots=1).result().get_counts(qc)
+                        measurement = list(counts.keys())[0]
+                        measurement_big_endian = measurement[::-1]
+                        if measurement_big_endian[0:n] != '111' and measurement_big_endian[n:2*n] != '111':
+                            break
                     
+                    print(measurement_big_endian)
                     order_A = measurement_big_endian[0 : n] # This customer
                     order_B = measurement_big_endian[n : 2*n] # Partner
                     
@@ -433,7 +437,7 @@ class Qustomer:
                 self.qc = QuantumCircuit(2 * self.n + 1, 2 * self.n) 
                 self.maximal = random.randint(0, 1) > 0.5
                 
-                for i in range(1, 2 * self.n + 1):
+                for i in range(1, self.n + 1):
                     self.qc.h(i)
                 
                 if not self.maximal:
@@ -447,7 +451,7 @@ class Qustomer:
                 self.entangled_partner = partner
                 partner.entangled_partner = self
                 
-                self.order = ("Maximally" if self.maximal else "minimally") + " entangled w/ #" + str(partner.id)
+                self.order = ("Maximally" if self.maximal else "Minimally") + " entangled w/ #" + str(partner.id)
                 GameController.log_message(f"Created entangled pair: Qustomer #{self.id} and #{partner.id}")
                 
                 GameController.qustomer_enter(self)
@@ -463,7 +467,7 @@ class Qustomer:
                     if self.order != "111":
                         break
             else:
-                self.order = "surprise me <( • _ • )>"
+                self.order = "surprise me" # <( • _ • )>"
             
             for i in range(1, self.n + 1):
                 self.qc.h(i)
@@ -553,7 +557,7 @@ def run_game():
     SCREEN_WIDTH = 1200
     SCREEN_HEIGHT = 800
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-    pygame.display.set_caption("Quantum Cafe")
+    pygame.display.set_caption("Qafe")
     clock = pygame.time.Clock()
 
     # Fonts
@@ -588,9 +592,8 @@ def run_game():
     # Moved Serve button
     input_serve = InputBox((550, 610, 200, 50), COLOR_TEXT)
     btn_serve = Button((780, 610, 200, 50), "Serve", (0, 0, 150))
-    # --- END MODIFIED ---
 
-    # --- Start Backend Logic ---
+    # backend logic
     n = 3 # 2^n menu items
     threading.Thread(target=Qustomer, args=(n, True, False), daemon=True).start()
     time.sleep(0.1) 
@@ -601,16 +604,13 @@ def run_game():
         spawn_thread.daemon = True
         spawn_thread.start()
 
-    # --- Main Game Loop ---
     running = True
     while running:
-        # --- Event Handling ---
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
             
             if not GameController.game_over:
-                # --- MODIFIED: Handle new input box ---
                 input_qook.handle_event(event)
                 input_measure.handle_event(event)
                 input_serve.handle_event(event)
@@ -626,7 +626,6 @@ def run_game():
                             input_qook.text = ""
                             input_qook.active = False
                     
-                    # --- NEW: Handle Measure Button ---
                     elif btn_measure.is_clicked(event.pos):
                         idx = input_measure.text
                         if idx:
@@ -641,7 +640,6 @@ def run_game():
                             input_serve.text = ""
                             input_serve.active = False
 
-        # --- Drawing ---
         screen.fill(COLOR_BG)
         
         with GameController.lock:
@@ -652,7 +650,6 @@ def run_game():
             strikes_copy = GameController.strikes
             points_copy = GameController.points 
 
-        # --- Draw Queues and Food ---
         draw_text(screen, "Order Queue", title_font, (50, 20), COLOR_TITLE)
         y_offset = 70
         for qustomer in order_queue_copy:
@@ -678,23 +675,21 @@ def run_game():
         draw_text(screen, "Pickup Queue", title_font, (370, 20), COLOR_TITLE)
         y_offset = 70
         for qustomer in pickup_queue_copy:
-            # --- MODIFIED: Show superposition/collapsed state ---
             order_str = qustomer.order
             if qustomer.entangled_partner:
                 if qustomer.order_revealed:
                     order_str = f"Collapsed to {qustomer.collapsed_order}"
                 elif qustomer.is_collapsed: # Collapsed but not revealed (2nd partner)
-                    order_str = "Maximally" if qustomer.maximal else "Minimally" + f" entangled with #{qustomer.entangled_partner.id}"
+                    order_str = ("Maximally" if qustomer.maximal else "Minimally") + f" entangled with #{qustomer.entangled_partner.id}"
                 else: # Not yet collapsed
                     order_str = qustomer.order # "Entangled w/ #X"
             elif qustomer.is_collapsed:
-                 order_str = qustomer.order # "Surprise Me" becomes "010", etc.
+                 order_str = qustomer.order
             else:
                  # Standard or Surprise Me, not yet measured
                  order_str = f"In Superposition"
             
             draw_text(screen, f"Qustomer #{qustomer.id} (Order: {order_str})", main_font, (370, y_offset), COLOR_TEXT)
-            # --- END MODIFIED ---
             
             bar_y = y_offset + 30
             if qustomer.timer_active:
