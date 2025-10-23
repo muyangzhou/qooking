@@ -248,7 +248,7 @@ class GameController:
                     
                     qc = qustomer_to_measure.qc
                     n = qustomer_to_measure.n
-                    qc.measure(list(range(1, n + 1)), list(range(0, 2 * n)))
+                    qc.measure(list(range(1, 2 * n + 1)), list(range(0, 2 * n)))
                     
                     backend = Aer.get_backend('qasm_simulator')
                     counts = backend.run(qc, shots=1).result().get_counts(qc)
