@@ -2,7 +2,6 @@ import pygame
 import sys
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
 from qiskit_aer import Aer, AerSimulator
-# from qiskit_ibm_runtime.fake_provider import FakePerth
 import numpy as np
 from qiskit.visualization import plot_histogram
 import time
@@ -14,7 +13,7 @@ from qiskit_algorithms import AmplificationProblem
 from qiskit_algorithms import Grover
 from qiskit.primitives import StatevectorSampler
 from qiskit.circuit.library import UnitaryGate
-from qiskit.quantum_info import Statevector
+from qiskit.quantum_info import Statevector, DensityMatrix
 from qiskit.circuit.library import ZGate
 
 
@@ -34,6 +33,31 @@ class GameController:
     cur_qustomer_id = 1
     points = 0
     strikes = 0
+    recipes_key = {
+             "000": ["apple", "flour", "sugar", "cinnamon", "butter"],
+             "001": ["pumpkin", "flour", "sugar", "eggs", "cinnamon"],
+             "011": ["coffee", "milk"],
+             "100": ["chai", "milk", "sugar", "cinnamon"],
+             "101": ["pumpkin", "milk", "coffee beans", "sugar", "cinnamon"],
+             "110": ["flour", "sugar", "cinnamon", "butter", "eggs"],
+             "010": ["banana", "flour", "sugar", "eggs", "butter"]
+             } # apple pie, pumpkin pie, coffee, chai latte, pumpkin spice latte, cinnamon roll, banana bread
+    
+    ingredients_map = { "apple": lambda: (lambda qc, q: qc.rz(np.pi/3, q)), 
+                           "pumpkin": lambda: (lambda qc, q: qc.rx(np.pi/4, q)),
+                           "cinnamon": lambda: (lambda qc, q: qc.ry(np.pi/6, q)),
+                           "coffee": lambda: (lambda qc, q: qc.p(np.pi, q)),
+                           "chai": lambda: (lambda qc, q: qc.p(np.pi/2, q)),
+                           "banana": lambda: (lambda qc, q: qc.p(np.pi/4, q)), 
+                           "sugar": lambda: (lambda qc, q: qc.cx(1, 2)),
+                           "milk": lambda: (lambda qc, q: qc.cz(2, 1)), 
+                           "eggs": lambda: (lambda qc, q: qc.h(q)), 
+                           "butter": lambda: (lambda qc, q: qc.rx(np.pi/6, q)),
+                           "flour": lambda: (lambda qc, q: qc.rz(np.pi/4, q))
+                        }
+    
+    expected_density_matrices = {}
+
 
     log = ["Welcome to the Quantum Cafe!"] # GUI will display this
     lock = threading.RLock() # For thread-safe access to lists/dicts
@@ -85,8 +109,6 @@ class GameController:
     @classmethod
     def qustomer_enter(cls, qustomer):
         cls.log_message(f"Enter qustomer #{qustomer.id}")
-    def qustomer_enter(cls, qustomer,  counte):
-        cls.log_message("Enter qustomer #" + str(qustomer.id))
         with cls.lock:
             cls.order_queue.append(qustomer)
         cls.set_timer(qustomer, 60) # TODO change this
@@ -222,38 +244,6 @@ class GameController:
             formatted_counts[bitstring] = prob
         
         return result.top_measurement
-    
-    @classmethod
-    def prepare_recipe_state(cls, qustomer_order):
-        # 1) From the binary bitstring order, identify the menu item from recipes dict
-        recipes_key = {
-             "000": ["apple", "flour", "sugar", "cinnamon", "butter"],
-             "001": ["pumpkin", "flour", "sugar", "eggs", "cinnamon"],
-             "011": ["coffee beans", "water"],
-             "100": ["chai", "milk", "sugar", "cinnamon"],
-             "101": ["pumpkin", "milk", "coffee beans", "sugar", "cinnamon"],
-             "110": ["flour", "sugar", "cinnamon", "butter", "eggs"],
-             "010": ["banana", "flour", "sugar", "eggs", "butter"]
-         } # apple pie, pumpkin pie, coffee, chai latte, pumpkin spice latte, cinnamon roll, banana bread
-        
-        # 2) Represent each recipe as the (initial/expected) quantum state
-        n = len(qustomer_order)
-        qc = QuantumCircuit(n)
-
-    
-        # 3) measure the qua
-        
-        return qc
-
-    @classmethod
-    def quantum_state_tomography(cls, qustomer):
-        ingredients = { "flavor": ["apple", "pumpkin", "cinnamon", "coffee", "chai", "banana"],
-                        "dry ingredients": ["flour", "sugar", "baking powder"],
-                        "wet ingredients": ["milk", "eggs", "butter"] }
-        
-        pass
-
-
 
     # collapse superposition of qustomer with qustomer_index
     @classmethod
@@ -357,6 +347,47 @@ class GameController:
         
         return True
 
+
+    @classmethod
+    def prepare_recipe_state(cls, qustomer_to_measure, recipes_key, ingredients_map):
+        # 1) From the binary bitstring order, identify the menu item from recipes dict
+        # 2) Represent each recipe as the (initial/expected) quantum state
+        bitstring = qustomer_to_measure.collapsed_order
+        n = 3
+        qc = QuantumCircuit(n)
+
+        # for loop that indexes the keys like 000, 001, 010, etc.
+        if bitstring in recipes_key:
+            recipe_ingredients = recipes_key[bitstring]
+            qubit_index = 0
+
+            for ingredient in recipe_ingredients:
+                if ingredient in ingredients_map:
+                    gate_factory = ingredients_map[ingredient]
+                    gate_fn = gate_factory()
+                    # apply gates on consecutive qubits
+                    # and two-qubit gates use the hardcoded indices from ingredients_map
+                    import inspect
+                    sig = inspect.signature(gate_fn)
+                    num_params = len(sig.parameters) - 1 # Subtracting qc parameter
+
+                    if num_params == 1: # single qubit gate
+                        gate_fn(qc, qubit_index % n)
+                        qubit_index += 1
+                    elif num_params == 2: # two qubit gate with hardcoded indices
+                        gate_fn(qc, None)
+
+                elif ingredient not in ingredients_map:
+                    print(f"Warning: No gate defined for ingredient '{ingredient}'")
+            state = Statevector.from_instruction(qc)
+            rho = DensityMatrix(state)
+            cls.expected_density_matrices[bitstring] = rho.data
+        else:
+            print(f"Error: Bitstring '{qustomer_to_measure.collapsed_order}' not found in recipes.")
+            return None
+        return rho.data
+    
+    
     # user wants to serve food to qustomer with qustomer_index
     @classmethod
     def serve_food(cls, qustomer_index):
@@ -528,13 +559,6 @@ class Qustomer:
                 
             GameController.log_message(f"Qustomer #{self.id} created (Order: {self.order})")
             GameController.qustomer_enter(self) 
-            self.qc = QuantumCircuit(2 * n + 1, n)
-            self.maximal = random.randint(0, 1) > 0.5 # maximally or minimally entangles a pair of qustomers
-        else:
-            self.qc = QuantumCircuit(n + 1, n)
-        
-        GameController.log_message(f"Qustomer #{self.id} created (Order: {self.order})")
-        GameController.qustomer_enter(self, entangled)
     
     def start_timer(self, seconds, status_when_started, timer_id):
         start_time = time.time()
@@ -644,12 +668,12 @@ def run_game():
     # --- MODIFIED: GUI Elements ---
     btn_take_order = Button((550, 400, 200, 50), "Take Order", (0, 150, 0))
     
-    input_qook = InputBox((550, 470, 200, 50), COLOR_TEXT)
-    btn_qook = Button((780, 470, 200, 50), "Let's Qook", (150, 0, 0))
-    
     # New Measure button
-    input_measure = InputBox((550, 540, 200, 50), COLOR_TEXT)
-    btn_measure = Button((780, 540, 200, 50), "Measure Order", (200, 100, 0))
+    input_measure = InputBox((550, 470, 200, 50), COLOR_TEXT)
+    btn_measure = Button((780, 470, 200, 50), "Measure Order", (200, 100, 0))
+    
+    input_qook = InputBox((550, 540, 200, 50), COLOR_TEXT)
+    btn_qook = Button((780, 540, 200, 50), "Let's Qook", (150, 0, 0))
     
     # Moved Serve button
     input_serve = InputBox((550, 610, 200, 50), COLOR_TEXT)
@@ -821,8 +845,8 @@ def run_game():
         input_serve.draw(screen, main_font)
         btn_serve.draw(screen, main_font)
         
-        draw_text(screen, "Dish ID", log_font, (550, 525), COLOR_TEXT) 
-        draw_text(screen, "Qustomer #", log_font, (550, 595), COLOR_TEXT) # Label for measure
+        draw_text(screen, "Qustomer #", log_font, (550, 525), COLOR_TEXT) # Label for measure
+        draw_text(screen, "Dish ID", log_font, (550, 595), COLOR_TEXT) 
         draw_text(screen, "Qustomer #", log_font, (550, 665), COLOR_TEXT) # Label for serve
         # --- END MODIFIED ---
         
