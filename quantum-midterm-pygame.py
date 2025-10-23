@@ -63,6 +63,7 @@ class GameController:
     def show_game_state(cls):
         pass
 
+    # timer thread
     @classmethod
     def set_timer(cls, qustomer, seconds):
         qustomer.timer_start_time = time.time()
@@ -78,6 +79,7 @@ class GameController:
             timer_thread.daemon = True
             timer_thread.start()
 
+    # new qustomer enters cafe
     @classmethod
     def qustomer_enter(cls, qustomer):
         cls.log_message(f"Enter qustomer #{qustomer.id}")
@@ -85,6 +87,7 @@ class GameController:
             cls.order_queue.append(qustomer)
         cls.set_timer(qustomer, 60) # TODO change this
             
+    # user wants to take order for next qustomer in line
     @classmethod
     def take_order(cls):
         with cls.lock:
@@ -98,12 +101,14 @@ class GameController:
         qustomer.status = QustomerStatus.WAITING
         cls.set_timer(qustomer, 60) # TODO change this
     
+    # check if menu_item is valid
     @classmethod
     def valid_dish(cls, menu_item):
         if len(menu_item) != 3 or any(c not in '01' for c in menu_item) or menu_item == '111':
             return False
         return True
     
+    # user wants to qook menu_item
     @classmethod
     def prepare_dish(cls, menu_item):
         if not cls.valid_dish(menu_item):
@@ -118,6 +123,7 @@ class GameController:
         cls.log_message(f"Prepared dish: {menu_item}")
         return True
     
+    # Convert state vector to reflection unitary
     @classmethod
     def state_to_unitary(cls, psi):
         n = int(np.log2(len(psi)))
@@ -128,6 +134,7 @@ class GameController:
         H = np.eye(2**n) - 2 * np.outer(v, np.conj(v))
         return H
 
+    # search ready food subset for qustomer's wanted order (or random order if surprise me)
     @classmethod
     def search_ready_subset(cls, qustomer, wanted_order): # Argument added
         n = qustomer.n
@@ -201,7 +208,7 @@ class GameController:
         
         return result.top_measurement
 
-    # --- NEW METHOD: measure_order ---
+    # collapse superposition of qustomer with qustomer_index
     @classmethod
     def measure_order(cls, qustomer_index):
         if not qustomer_index.isdigit():
@@ -303,7 +310,7 @@ class GameController:
         
         return True
 
-    # --- MODIFIED: serve_food ---
+    # user wants to serve food to qustomer with qustomer_index
     @classmethod
     def serve_food(cls, qustomer_index):
         if not qustomer_index.isdigit():
@@ -551,6 +558,7 @@ def draw_text(screen, text, font, pos, color=(0, 0, 0)):
     text_surf = font.render(text, True, color)
     screen.blit(text_surf, pos)
 
+# pygame main loop
 def run_game():
     pygame.init()
     
