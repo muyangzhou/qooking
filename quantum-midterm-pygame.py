@@ -1,7 +1,8 @@
 import pygame
 import sys
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
-from qiskit_aer import Aer
+from qiskit_aer import Aer, AerSimulator
+# from qiskit_ibm_runtime.fake_provider import FakePerth
 import numpy as np
 from qiskit.visualization import plot_histogram
 import time
@@ -18,6 +19,7 @@ from qiskit.circuit.library import ZGate
 
 
 # --- Backend Code (Modified for GUI) ---
+#backend = AerSimulator.from_backend(FakePerth())
 
 class QustomerStatus(Enum):
     IN_LINE = 0
@@ -207,6 +209,38 @@ class GameController:
             formatted_counts[bitstring] = prob
         # plot_histogram(formatted_counts)
         return result.top_measurement
+    
+    @classmethod
+    def prepare_recipe_state(cls, qustomer_order):
+        # 1) From the binary bitstring order, identify the menu item from recipes dict
+        recipes_key = {
+             "000": ["apple", "flour", "sugar", "cinnamon", "butter"],
+             "001": ["pumpkin", "flour", "sugar", "eggs", "cinnamon"],
+             "011": ["coffee beans", "water"],
+             "100": ["chai", "milk", "sugar", "cinnamon"],
+             "101": ["pumpkin", "milk", "coffee beans", "sugar", "cinnamon"],
+             "110": ["flour", "sugar", "cinnamon", "butter", "eggs"],
+             "010": ["banana", "flour", "sugar", "eggs", "butter"]
+         } # apple pie, pumpkin pie, coffee, chai latte, pumpkin spice latte, cinnamon roll, banana bread
+        
+        # 2) Represent each recipe as the (initial/expected) quantum state
+        n = len(qustomer_order)
+        qc = QuantumCircuit(n)
+
+    
+        # 3) measure the qua
+        
+        return qc
+
+    @classmethod
+    def quantum_state_tomography(cls, qustomer):
+        ingredients = { "flavor": ["apple", "pumpkin", "cinnamon", "coffee", "chai", "banana"],
+                        "dry ingredients": ["flour", "sugar", "baking powder"],
+                        "wet ingredients": ["milk", "eggs", "butter"] }
+        
+        pass
+
+
 
     @classmethod
     def serve_food(cls, qustomer_index):
