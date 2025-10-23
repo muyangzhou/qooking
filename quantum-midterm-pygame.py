@@ -65,7 +65,6 @@ class GameController:
 
     @classmethod
     def set_timer(cls, qustomer, seconds):
-        # --- MODIFIED FOR TIMER FIX ---
         qustomer.timer_start_time = time.time()
         qustomer.timer_duration = seconds
         qustomer.timer_active = True
@@ -73,29 +72,18 @@ class GameController:
         with cls.lock:
             qustomer.timer_id += 1 # Invalidate any old timer threads
             current_timer_id = qustomer.timer_id
-        # --- END MODIFIED ---
         
         if not cls.debug_on:
-            # Pass the current_timer_id to the new thread
             timer_thread = threading.Thread(target=qustomer.start_timer, args=(seconds, qustomer.status, current_timer_id))
             timer_thread.daemon = True
             timer_thread.start()
 
     @classmethod
-    def qustomer_enter(cls, qustomer, entangled):
-        cls.log_message("Enter qustomer #" + str(qustomer.id))
+    def qustomer_enter(cls, qustomer):
+        cls.log_message(f"Enter qustomer #{qustomer.id}")
         with cls.lock:
             cls.order_queue.append(qustomer)
-        cls.set_timer(qustomer, 15) # Increased time for GUI
-        for i in range(1, qustomer.n + 1):
-            qustomer.qc.h(i)
-        if entangled:
-            if not qustomer.maximal:
-                for i in range(1, qustomer.n + 1):
-                    qustomer.qc.x(qustomer.n + i)
-            for i in range(1, qustomer.n + 1):
-                qustomer.qc.cx(i, qustomer.n + i)
-            cls.log_message("Created " + ("maximally" if qustomer.maximal else "minimally") + " entangled qustomer #" + str(qustomer.id) + ".5")
+        cls.set_timer(qustomer, 60) # TODO change this
             
     @classmethod
     def take_order(cls):
@@ -106,9 +94,9 @@ class GameController:
             qustomer = cls.order_queue.pop(0)
             cls.pickup_queue.append(qustomer)
         
-        cls.log_message("Order " + qustomer.order + " for qustomer #" + str(qustomer.id) + " taken.")
+        cls.log_message(f"Order for qustomer #{qustomer.id} taken. (In Superposition)")
         qustomer.status = QustomerStatus.WAITING
-        cls.set_timer(qustomer, 30) # This will now correctly start a new timer
+        cls.set_timer(qustomer, 60) # TODO change this
     
     @classmethod
     def valid_dish(cls, menu_item):
@@ -141,18 +129,23 @@ class GameController:
         return H
 
     @classmethod
-    def search_ready_subset(cls, qustomer):
+    def search_ready_subset(cls, qustomer, wanted_order): # Argument added
         n = qustomer.n
         all_states = 2**n
 
         # target start (qustomer order)
         # set this to 111 if qustomer has "surprise me" order (grover's algo with result in uniform superposition)
-        target_state = qustomer.order if "surprise me" in qustomer.order else '111'
+        target_state = wanted_order if "surprise me" not in wanted_order else '111'
         M = 1
 
         # ready food
-        subset_bitstrings = list(cls.ready_food.keys())
-        k = len(subset_bitstrings)
+        with cls.lock: # Added lock for thread safety
+            subset_bitstrings = list(cls.ready_food.keys())
+            k = len(subset_bitstrings)
+        
+        if k == 0:
+            print("Search error: k=0")
+            return "000" 
 
         print(f"Search Space (k): {k} items {subset_bitstrings}")
         print(f"Target (M): {M} item '{target_state}'\n")
@@ -177,7 +170,7 @@ class GameController:
         Um_init = QuantumCircuit(n)
         Um_init.initialize(target_vector, range(n))
         Um_decomposed = Um_init.decompose()
-        Um = QuantumCircuit(n, name="Um (prepares k=7)")
+        Um = QuantumCircuit(n, name=f"Um (prepares k={k})") # Name dynamically
         for instruction in Um_decomposed.data:
             if instruction.operation.name != 'reset':
                 Um.append(instruction)
@@ -190,24 +183,123 @@ class GameController:
         problem = AmplificationProblem(
             oracle=oracle,
             state_preparation=Um,
-            is_good_state=None # We use the oracle, so this isn't needed
+            is_good_state=None 
         )
 
         # run grover
         grover = Grover(
             sampler=StatevectorSampler(),
-            iterations=R # Use our calculated 2 iterations
+            iterations=R 
         )
-        result = grover.amplify(problem) # idk how this works actually
+        result = grover.amplify(problem) 
 
         # debug
         print(f"Top measurement: {result.top_measurement}")
         formatted_counts = {}
         for bitstring, prob in result.circuit_results[0].items():
             formatted_counts[bitstring] = prob
-        # plot_histogram(formatted_counts)
+        
         return result.top_measurement
 
+    # --- NEW METHOD: measure_order ---
+    @classmethod
+    def measure_order(cls, qustomer_index):
+        if not qustomer_index.isdigit():
+            cls.log_message(f"Invalid qustomer index: {qustomer_index}. Must be a number.")
+            return False
+        
+        qustomer_id = int(qustomer_index)
+        qustomer_to_measure = None
+        
+        with cls.lock:
+            for qustomer in cls.pickup_queue:
+                if qustomer.id == qustomer_id:
+                    qustomer_to_measure = qustomer
+                    break
+        
+        if not qustomer_to_measure:
+            cls.log_message(f"No qustomer with ID #{qustomer_id} in pickup queue.")
+            return False
+            
+        if qustomer_to_measure.is_collapsed:
+            cls.log_message(f"Qustomer #{qustomer_id}'s order is already collapsed.")
+            return True
+
+        # --- DUMMY GAME PLACEHOLDER ---
+        cls.log_message(f"Starting measurement game for Qustomer #{qustomer_id}...")
+        time.sleep(1) # Simulating the dummy game
+        cls.log_message("...Measurement game complete!")
+        # --- END DUMMY GAME ---
+        
+        with cls.lock:
+            # Case 1: Entangled customer
+            if qustomer_to_measure.entangled_partner:
+                partner = qustomer_to_measure.entangled_partner
+                
+                # Check if partner was measured first
+                if partner.is_collapsed:
+                    # This is the second partner. Just reveal their order.
+                    qustomer_to_measure.is_collapsed = True
+                    qustomer_to_measure.order_revealed = True
+                    cls.log_message(f"Partner was already measured! Qustomer #{qustomer_id}'s order is revealed: {qustomer_to_measure.collapsed_order}")
+                else:
+                    # This is the first partner. Measure the pair.
+                    cls.log_message(f"Measuring entangled pair: #{qustomer_to_measure.id} and #{partner.id}")
+                    
+                    qc = qustomer_to_measure.qc
+                    n = qustomer_to_measure.n
+                    qc.measure(list(range(1, n + 1)), list(range(0, 2 * n)))
+                    
+                    backend = Aer.get_backend('qasm_simulator')
+                    counts = backend.run(qc, shots=1).result().get_counts(qc)
+                    measurement = list(counts.keys())[0]
+                    measurement_big_endian = measurement[::-1]
+                    
+                    order_A = measurement_big_endian[0 : n] # This customer
+                    order_B = measurement_big_endian[n : 2*n] # Partner
+                    
+                    # Set both to collapsed
+                    qustomer_to_measure.is_collapsed = True
+                    partner.is_collapsed = True
+                    
+                    # Store collapsed orders
+                    qustomer_to_measure.collapsed_order = order_A
+                    partner.collapsed_order = order_B
+                    
+                    # --- REQUEST 1 LOGIC ---
+                    # Reveal *this* customer's order
+                    qustomer_to_measure.order_revealed = True
+                    # Keep partner's order *hidden*
+                    partner.order_revealed = False 
+                    
+                    cls.log_message(f"Collapse! Qustomer #{qustomer_id}'s order is {order_A}.")
+                    cls.log_message(f"Qustomer #{partner.id}'s order is now also set (but hidden)!")
+            
+            # Case 2: "Surprise Me" customer
+            elif "surprise me" in qustomer_to_measure.order:
+                # Pick a random 3-bit string that isn't '111'
+                new_order = ""
+                while True:
+                    new_order = ""
+                    for i in range(qustomer_to_measure.n):
+                        new_order += str(np.random.randint(0, 2))
+                    if new_order != "111":
+                        break
+                
+                qustomer_to_measure.order = new_order # Overwrite "surprise me"
+                qustomer_to_measure.is_collapsed = True
+                qustomer_to_measure.order_revealed = True
+                cls.log_message(f"Qustomer #{qustomer_id} decided they want: {new_order}")
+
+            # Case 3: Standard customer
+            else:
+                qustomer_to_measure.is_collapsed = True
+                qustomer_to_measure.order_revealed = True
+                cls.log_message(f"Measurement complete for Qustomer #{qustomer_id}. Order confirmed: {qustomer_to_measure.order}")
+        
+        return True
+
+    # --- MODIFIED: serve_food ---
     @classmethod
     def serve_food(cls, qustomer_index):
         if not qustomer_index.isdigit():
@@ -220,39 +312,51 @@ class GameController:
         with cls.lock:
             for i, qustomer in enumerate(cls.pickup_queue):
                 if qustomer.id == qustomer_id:
-                    qustomer_to_serve = cls.pickup_queue.pop(i)
+                    qustomer_to_serve = qustomer # Keep in queue for now
                     break
         
         if not qustomer_to_serve:
             cls.log_message(f"No qustomer with ID #{qustomer_id} in pickup queue.")
             return False
+            
+        # --- NEW GATE: Check for collapse ---
+        if not qustomer_to_serve.is_collapsed:
+            cls.log_message(f"Order for Qustomer #{qustomer_id} is not measured! Use 'Measure' first.")
+            return False
+        # --- END NEW GATE ---
 
-        # This prevents a crash in the reverted search_ready_subset (k=0)
+        wanted_order = ""
+        if qustomer_to_serve.entangled_partner:
+            wanted_order = qustomer_to_serve.collapsed_order
+        else:
+            wanted_order = qustomer_to_serve.order
+
+        # Check if food is ready
         with cls.lock:
             if not cls.ready_food:
                 cls.log_message("No food is ready to serve!")
-                cls.pickup_queue.append(qustomer_to_serve) # Put back
                 return False
 
-        # Run the search
-        selected_food = cls.search_ready_subset(qustomer_to_serve)
+        # Run the search, passing the determined wanted_order
+        selected_food = cls.search_ready_subset(qustomer_to_serve, wanted_order) 
 
         # Consume the food item
         with cls.lock:
-            # Check if food still exists (could have been used by another thread)
             if selected_food not in cls.ready_food:
-                cls.log_message(f"Food {selected_food} was just used! Try again.")
-                cls.pickup_queue.append(qustomer_to_serve) # Put back
+                cls.log_message(f"Grover found {selected_food}, but it's not ready!")
                 return False
                 
             cls.ready_food[selected_food] -= 1
             if cls.ready_food[selected_food] == 0:
                 del cls.ready_food[selected_food]
+            
+            # Now actually remove from queue
+            cls.pickup_queue.remove(qustomer_to_serve)
 
-        cls.log_message(f"Served {selected_food} to qustomer #{qustomer_id} (wanted {qustomer_to_serve.order})")
+        cls.log_message(f"Served {selected_food} to qustomer #{qustomer_id} (wanted {wanted_order})")
 
         with cls.lock:
-            if str(selected_food) == str(qustomer_to_serve.order) or "surprise me" in qustomer_to_serve.order:
+            if str(selected_food) == str(wanted_order): # "surprise me" is already replaced
                 cls.log_message("Order served correctly!")
                 cls.points += 1
                 if cls.points >= 10:
@@ -261,30 +365,23 @@ class GameController:
             else:
                 cls.log_message("Order served incorrectly </3")
                 cls.points -= 1
-                cls.issue_strike(qustomer_to_serve)
+                cls.strikes += 1
+                if cls.strikes >= 3:
+                    cls.log_message("Game over! You have made 3 incorrect orders.")
+                    cls.game_over = True
         
         qustomer_to_serve.status = QustomerStatus.COMPLETE
-        qustomer_to_serve.timer_active = False # --- ADDED: Stop timer bar on serve ---
+        qustomer_to_serve.timer_active = False
         return True
-    
-    @classmethod
-    def issue_strike(cls, qustomer):
-        with cls.lock:
-            cls.strikes += 1
-            cls.log_message(f"Issued strike to qustomer #{qustomer.id}. Total strikes: {cls.strikes}")
-            if cls.strikes >= 3:
-                cls.log_message("Game over! You have made 3 incorrect orders.")
-                cls.game_over = True
     
     @classmethod
     def handle_inline_fail(cls, qustomer):
         try:
             with cls.lock:
                 cls.order_queue.remove(qustomer)
-                cls.issue_strike(qustomer)
             cls.log_message(f"Qustomer #{qustomer.id} left before ordering.")
         except ValueError:
-            pass # Qustomer was already served or removed
+            pass 
 
     @classmethod
     def handle_waiting_fail(cls, qustomer):
@@ -299,83 +396,105 @@ class GameController:
     def spawn_qustomer(cls, n, min_interval, max_interval):
         while not cls.game_over:
             time.sleep(np.random.randint(min_interval, max_interval))
-            if cls.game_over: break # Stop spawning if game ended
+            if cls.game_over: break 
             
-            # Create a new qustomer
             entangled = random.choice([True, False])
             surprise = random.choice([True, False])
-            # Run constructor in a thread to avoid blocking spawner
             threading.Thread(target=Qustomer, args=(n, entangled, surprise), daemon=True).start()
             
 
 class Qustomer:
-    def __init__(self, n, entangled=False, surprise_me=False):
+    def __init__(self, n, entangled=False, surprise_me=False, _is_secondary=False, _primary_qustomer=None):
         self.n = n
-        self.order = ""
-        self.entangled = entangled
-        if not surprise_me:
-            while True:
-                self.order = ""
-                for i in range(n):
-                    self.order += str(np.random.randint(0, 2))
-                if self.order != "111":
-                    break
-        else:
-            self.order = "surprise me <( • _ • )>"
+        self.entangled_partner = None
+        self.collapsed_order = None 
+        self.qc = None
+        
+        self.is_collapsed = False
+        self.order_revealed = False
         
         with GameController.lock:
             self.id = GameController.cur_qustomer_id
             GameController.cur_qustomer_id += 1
         
-        # --- MODIFIED FOR TIMER FIX ---
+        self.status = QustomerStatus.IN_LINE
         self.timer_start_time = 0.0
         self.timer_duration = 0.0
         self.timer_active = False
-        self.timer_id = 0 # Unique ID for each timer thread
-        # --- END MODIFIED ---
+        self.timer_id = 0
 
-        self.status = QustomerStatus.IN_LINE
         if entangled:
-            self.qc = QuantumCircuit(2 * n + 1, n)
-            self.maximal = random.randint(0, 1) > 0.5
-        else:
-            self.qc = QuantumCircuit(n + 1, n)
+            self.order = "Entangled" 
+            if _is_secondary:
+                self.qc = _primary_qustomer.qc
+                self.maximal = _primary_qustomer.maximal
+                self.order = ("Maximally" if _primary_qustomer.maximal else "Minimally") + " entangled w/ #" + str(_primary_qustomer.id)
+            else:
+                self.qc = QuantumCircuit(2 * self.n + 1, 2 * self.n) 
+                self.maximal = random.randint(0, 1) > 0.5
+                
+                for i in range(1, 2 * self.n + 1):
+                    self.qc.h(i)
+                
+                if not self.maximal:
+                     for i in range(1, self.n + 1):
+                         self.qc.x(self.n + i)
+                for i in range(1, self.n + 1):
+                    self.qc.cx(i, self.n + i)
+                
+                partner = Qustomer(n, entangled=True, _is_secondary=True, _primary_qustomer=self)
+                
+                self.entangled_partner = partner
+                partner.entangled_partner = self
+                
+                self.order = ("Maximally" if self.maximal else "minimally") + " entangled w/ #" + str(partner.id)
+                GameController.log_message(f"Created entangled pair: Qustomer #{self.id} and #{partner.id}")
+                
+                GameController.qustomer_enter(self)
+                GameController.qustomer_enter(partner)
         
-        GameController.log_message(f"Qustomer #{self.id} created (Order: {self.order})")
-        GameController.qustomer_enter(self, entangled)
+        else: # Not entangled
+            self.qc = QuantumCircuit(self.n + 1, self.n)
+            if not surprise_me:
+                while True:
+                    self.order = ""
+                    for i in range(n):
+                        self.order += str(np.random.randint(0, 2))
+                    if self.order != "111":
+                        break
+            else:
+                self.order = "surprise me <( • _ • )>"
+            
+            for i in range(1, self.n + 1):
+                self.qc.h(i)
+                
+            GameController.log_message(f"Qustomer #{self.id} created (Order: {self.order})")
+            GameController.qustomer_enter(self) 
     
-    # --- MODIFIED FOR TIMER FIX ---
     def start_timer(self, seconds, status_when_started, timer_id):
         start_time = time.time()
         while time.time() - start_time < seconds:
             with GameController.lock:
-                # If timer_id changed, a new timer was set. This thread is obsolete.
                 if self.timer_id != timer_id:
                     return 
-                # If customer is complete, timer is void
                 if self.status == QustomerStatus.COMPLETE:
                     self.timer_active = False
                     return
             time.sleep(0.1)
         
-        # Time's up. Check if we are still the active timer and not complete.
         with GameController.lock:
             if self.timer_id != timer_id or self.status == QustomerStatus.COMPLETE:
                 return
         
-        self.timer_active = False # Stop the bar
+        self.timer_active = False 
         
-        # Only trigger fail state if status is still what it was when timer started
         if self.status == status_when_started:
             if self.status == QustomerStatus.IN_LINE:
                 GameController.handle_inline_fail(qustomer = self)
             elif self.status == QustomerStatus.WAITING:
                 GameController.handle_waiting_fail(qustomer = self)
-    # --- END MODIFIED ---
 
 # --- Pygame GUI Code ---
-# (No changes to GUI code, so it is omitted for brevity)
-# (Please use the GUI code from the previous response)
 
 # Helper class for simple buttons
 class Button:
@@ -456,24 +575,29 @@ def run_game():
     BAR_MAX_WIDTH = 300
     BAR_HEIGHT = 15
 
-    # --- Initialize GUI Elements ---
+    # --- MODIFIED: GUI Elements ---
     btn_take_order = Button((550, 400, 200, 50), "Take Order", (0, 150, 0))
     
     input_qook = InputBox((550, 470, 200, 50), COLOR_TEXT)
     btn_qook = Button((780, 470, 200, 50), "Let's Qook", (150, 0, 0))
     
-    input_serve = InputBox((550, 540, 200, 50), COLOR_TEXT)
-    btn_serve = Button((780, 540, 200, 50), "Serve", (0, 0, 150))
+    # New Measure button
+    input_measure = InputBox((550, 540, 200, 50), COLOR_TEXT)
+    btn_measure = Button((780, 540, 200, 50), "Measure Order", (200, 100, 0))
+    
+    # Moved Serve button
+    input_serve = InputBox((550, 610, 200, 50), COLOR_TEXT)
+    btn_serve = Button((780, 610, 200, 50), "Serve", (0, 0, 150))
+    # --- END MODIFIED ---
 
     # --- Start Backend Logic ---
     n = 3 # 2^n menu items
-    # Create initial qustomers in threads so they don't block GUI
-    threading.Thread(target=Qustomer, args=(n, True, True), daemon=True).start()
-    time.sleep(0.1) # Stagger
-    threading.Thread(target=Qustomer, args=(n,), daemon=True).start()
+    threading.Thread(target=Qustomer, args=(n, True, False), daemon=True).start()
+    time.sleep(0.1) 
+    threading.Thread(target=Qustomer, args=(n, False, True), daemon=True).start() # Add a "surprise me"
     
     if not GameController.debug_on:
-        spawn_thread = threading.Thread(target=GameController.spawn_qustomer, args=(n, 5, 12)) # Slower spawn for GUI
+        spawn_thread = threading.Thread(target=GameController.spawn_qustomer, args=(n, 5, 12)) 
         spawn_thread.daemon = True
         spawn_thread.start()
 
@@ -486,8 +610,9 @@ def run_game():
                 running = False
             
             if not GameController.game_over:
-                # Handle input box events
+                # --- MODIFIED: Handle new input box ---
                 input_qook.handle_event(event)
+                input_measure.handle_event(event)
                 input_serve.handle_event(event)
 
                 if event.type == pygame.MOUSEBUTTONDOWN:
@@ -500,6 +625,14 @@ def run_game():
                             threading.Thread(target=GameController.prepare_dish, args=(item,), daemon=True).start()
                             input_qook.text = ""
                             input_qook.active = False
+                    
+                    # --- NEW: Handle Measure Button ---
+                    elif btn_measure.is_clicked(event.pos):
+                        idx = input_measure.text
+                        if idx:
+                            threading.Thread(target=GameController.measure_order, args=(idx,), daemon=True).start()
+                            input_measure.text = ""
+                            input_measure.active = False
 
                     elif btn_serve.is_clicked(event.pos):
                         idx = input_serve.text
@@ -511,7 +644,6 @@ def run_game():
         # --- Drawing ---
         screen.fill(COLOR_BG)
         
-        # --- Get Thread-Safe Data ---
         with GameController.lock:
             order_queue_copy = list(GameController.order_queue)
             pickup_queue_copy = list(GameController.pickup_queue)
@@ -520,59 +652,66 @@ def run_game():
             strikes_copy = GameController.strikes
             points_copy = GameController.points 
 
-        # --- Draw Queues and Food (with timer bars) ---
+        # --- Draw Queues and Food ---
         draw_text(screen, "Order Queue", title_font, (50, 20), COLOR_TITLE)
         y_offset = 70
         for qustomer in order_queue_copy:
-            party = "party of 2" if qustomer.entangled else "party of 1"
-            draw_text(screen, f"Qustomer #{qustomer.id} ({party})", main_font, (50, y_offset), COLOR_TEXT)
+            draw_text(screen, f"Qustomer #{qustomer.id}", main_font, (50, y_offset), COLOR_TEXT)
             
             bar_y = y_offset + 30
             if qustomer.timer_active:
                 elapsed = time.time() - qustomer.timer_start_time
                 percent_left = 1.0 - (elapsed / qustomer.timer_duration)
-                percent_left = max(0.0, min(1.0, percent_left)) # Clamp 0-1
+                percent_left = max(0.0, min(1.0, percent_left)) 
                 
                 bar_current_width = int(BAR_MAX_WIDTH * percent_left)
-                
-                # Dynamic color
                 color = COLOR_BAR_HI
                 if percent_left < 0.5: color = COLOR_BAR_MED
                 if percent_left < 0.2: color = COLOR_BAR_LOW
                 
-                # Draw background
                 pygame.draw.rect(screen, COLOR_BAR_BG, (50, bar_y, BAR_MAX_WIDTH, BAR_HEIGHT))
-                # Draw foreground
                 pygame.draw.rect(screen, color, (50, bar_y, bar_current_width, BAR_HEIGHT))
-                y_offset += 25 # Extra space for the bar
+                y_offset += 25 
             
-            y_offset += 35 # Space for next customer
+            y_offset += 35 
 
         draw_text(screen, "Pickup Queue", title_font, (370, 20), COLOR_TITLE)
         y_offset = 70
         for qustomer in pickup_queue_copy:
-            draw_text(screen, f"Qustomer #{qustomer.id} (Order: {qustomer.order})", main_font, (370, y_offset), COLOR_TEXT)
+            # --- MODIFIED: Show superposition/collapsed state ---
+            order_str = qustomer.order
+            if qustomer.entangled_partner:
+                if qustomer.order_revealed:
+                    order_str = f"Collapsed to {qustomer.collapsed_order}"
+                elif qustomer.is_collapsed: # Collapsed but not revealed (2nd partner)
+                    order_str = "Maximally" if qustomer.maximal else "Minimally" + f" entangled with #{qustomer.entangled_partner.id}"
+                else: # Not yet collapsed
+                    order_str = qustomer.order # "Entangled w/ #X"
+            elif qustomer.is_collapsed:
+                 order_str = qustomer.order # "Surprise Me" becomes "010", etc.
+            else:
+                 # Standard or Surprise Me, not yet measured
+                 order_str = f"In Superposition"
+            
+            draw_text(screen, f"Qustomer #{qustomer.id} (Order: {order_str})", main_font, (370, y_offset), COLOR_TEXT)
+            # --- END MODIFIED ---
             
             bar_y = y_offset + 30
             if qustomer.timer_active:
                 elapsed = time.time() - qustomer.timer_start_time
                 percent_left = 1.0 - (elapsed / qustomer.timer_duration)
-                percent_left = max(0.0, min(1.0, percent_left)) # Clamp 0-1
+                percent_left = max(0.0, min(1.0, percent_left))
                 
                 bar_current_width = int(BAR_MAX_WIDTH * percent_left)
-                
-                # Dynamic color
                 color = COLOR_BAR_HI
                 if percent_left < 0.5: color = COLOR_BAR_MED
                 if percent_left < 0.2: color = COLOR_BAR_LOW
                 
-                # Draw background
                 pygame.draw.rect(screen, COLOR_BAR_BG, (370, bar_y, BAR_MAX_WIDTH, BAR_HEIGHT))
-                # Draw foreground
                 pygame.draw.rect(screen, color, (370, bar_y, bar_current_width, BAR_HEIGHT))
-                y_offset += 25 # Extra space
+                y_offset += 25
             
-            y_offset += 35 # Space for next customer
+            y_offset += 35 
 
         draw_text(screen, "Ready Food", title_font, (750, 20), COLOR_TITLE)
         y_offset = 70
@@ -580,18 +719,18 @@ def run_game():
             draw_text(screen, f"Dish {item}: {count} servings", main_font, (750, y_offset), COLOR_TEXT)
             y_offset += 35
 
-        # --- Draw Score and Log (using copied variables) ---
+        # --- Draw Score and Log ---
         draw_text(screen, "Score", title_font, (1000, 20), COLOR_TITLE)
         draw_text(screen, f"Points: {points_copy}", main_font, (1000, 70), COLOR_SUCCESS)
         draw_text(screen, f"Strikes: {strikes_copy}", main_font, (1000, 110), COLOR_STRIKE)
 
         draw_text(screen, "Game Log", title_font, (50, 350), COLOR_TITLE)
         log_rect = pygame.Rect(50, 400, 450, 280)
-        pygame.draw.rect(screen, (255, 255, 255), log_rect) # White BG
-        pygame.draw.rect(screen, (0,0,0), log_rect, 2) # Black border
+        pygame.draw.rect(screen, (255, 255, 255), log_rect)
+        pygame.draw.rect(screen, (0,0,0), log_rect, 2)
         y_offset = 420
         line_height = 25
-        max_width = log_rect.width - 40 # Increased padding
+        max_width = log_rect.width - 40 
 
         for message in log_copy:
             words = message.split(' ')
@@ -602,17 +741,13 @@ def run_game():
                 if text_width <= max_width:
                     line = test_line
                 else:
-                    # draw the current line and start a new one
                     draw_text(screen, line, log_font, (70, y_offset), COLOR_TEXT)
                     y_offset += line_height
                     line = word + ' '
-
-                # stop if text goes past bottom of log
                 if y_offset + line_height > log_rect.bottom:
-                    line = "" # Clear line to prevent drawing it
+                    line = "" 
                     break
 
-            # draw last line of text
             if line and y_offset + line_height <= log_rect.bottom:
                 draw_text(screen, line, log_font, (70, y_offset), COLOR_TEXT)
                 y_offset += line_height
@@ -620,19 +755,24 @@ def run_game():
             if y_offset + line_height > log_rect.bottom:
                 break
 
-        # --- Draw Buttons and Inputs ---
+        # --- MODIFIED: Draw Buttons and Inputs ---
         btn_take_order.draw(screen, main_font)
         input_qook.draw(screen, main_font)
         btn_qook.draw(screen, main_font)
+        input_measure.draw(screen, main_font) # New
+        btn_measure.draw(screen, main_font)   # New
         input_serve.draw(screen, main_font)
         btn_serve.draw(screen, main_font)
+        
         draw_text(screen, "Dish ID", log_font, (550, 525), COLOR_TEXT) 
-        draw_text(screen, "Qustomer #", log_font, (550, 595), COLOR_TEXT) 
+        draw_text(screen, "Qustomer #", log_font, (550, 595), COLOR_TEXT) # Label for measure
+        draw_text(screen, "Qustomer #", log_font, (550, 665), COLOR_TEXT) # Label for serve
+        # --- END MODIFIED ---
         
         # --- Handle Game Over Screen ---
         if GameController.game_over:
             overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-            overlay.fill((100, 100, 100, 200)) # Semi-transparent grey
+            overlay.fill((100, 100, 100, 200)) 
             screen.blit(overlay, (0, 0))
             
             final_text = "You Win!" if points_copy >= 10 else "Game Over!"
