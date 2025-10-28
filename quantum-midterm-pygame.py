@@ -2,6 +2,7 @@ import pygame
 import sys
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
 from qiskit_aer import Aer, AerSimulator
+from qiskit.quantum_info import DensityMatrix, state_fidelity, Statevector
 import numpy as np
 from qiskit.visualization import plot_histogram
 import time
@@ -25,38 +26,21 @@ class QustomerStatus(Enum):
     WAITING = 1
     COMPLETE = 2
 
-class GameController:
-    debug_on = False # Set to False to enable timers
-    order_queue = []
-    pickup_queue = []
-    ready_food = {}
-    cur_qustomer_id = 1
-    points = 0
-    strikes = 0
-
-    BITSTRING_TO_ITEM = {
-        "000": "apple pie",
-        "001": "pumpkin pie",
-        "010": "banana bread",
-        "011": "coffee",
-        "100": "chai latte",
-        "101": "pumpkin spice latte",
-        "110": "cinnamon roll"
-    }
-    recipes_key = {
+# global variables 
+recipes_key = {
              "000": ["apple", "flour", "sugar", "cinnamon", "butter"],
              "001": ["pumpkin", "flour", "sugar", "eggs", "cinnamon"],
-             "011": ["coffee", "milk"],
+             "010": ["cinnamon", "flour", "sugar", "butter", "eggs"],
+             "011": ["banana", "flour", "sugar", "eggs", "butter"],
              "100": ["chai", "milk", "sugar", "cinnamon"],
-             "101": ["pumpkin", "milk", "coffee beans", "sugar", "cinnamon"],
-             "110": ["flour", "sugar", "cinnamon", "butter", "eggs"],
-             "010": ["banana", "flour", "sugar", "eggs", "butter"]
+             "101": ["pumpkin", "milk", "sugar", "cinnamon"],
+             "110": ["matcha", "sugar", "milk"],
              } # apple pie, pumpkin pie, coffee, chai latte, pumpkin spice latte, cinnamon roll, banana bread
     
-    ingredients_map = { "apple": lambda: (lambda qc, q: qc.rz(np.pi/3, q)), 
+ingredients_map = { "apple": lambda: (lambda qc, q: qc.rz(np.pi/3, q)), 
                            "pumpkin": lambda: (lambda qc, q: qc.rx(np.pi/4, q)),
-                           "cinnamon": lambda: (lambda qc, q: qc.ry(np.pi/6, q)),
-                           "coffee": lambda: (lambda qc, q: qc.p(np.pi, q)),
+                           "cinnamon": lambda: (lambda qc, q: qc.p(np.pi*7/11, q)),
+                           "matcha": lambda: (lambda qc, q: qc.ry(np.pi/6, q)),
                            "chai": lambda: (lambda qc, q: qc.p(np.pi/2, q)),
                            "banana": lambda: (lambda qc, q: qc.p(np.pi/4, q)), 
                            "sugar": lambda: (lambda qc, q: qc.cx(1, 2)),
@@ -65,12 +49,91 @@ class GameController:
                            "butter": lambda: (lambda qc, q: qc.rx(np.pi/6, q)),
                            "flour": lambda: (lambda qc, q: qc.rz(np.pi/4, q))
                         }
-    
+
+expected_density_matrices = {}
+
+def apply_recipe_gates_with_mapping(recipes_key, ingredients_map):
+        n = 3
+        qc_recipe = QuantumCircuit(n)
+
+        # for loop that indexes the keys like 000, 001, 010, etc.
+        if bitstring in recipes_key:
+            recipe_ingredients = recipes_key[bitstring]
+            qubit_index = 0
+
+            for ingredient in recipe_ingredients:
+                if ingredient in ingredients_map:
+                    gate_factory = ingredients_map[ingredient]
+                    gate_fn = gate_factory()
+                    # apply gates on consecutive qubits
+                    # and two-qubit gates use the hardcoded indices from ingredients_map
+                    import inspect
+                    sig = inspect.signature(gate_fn)
+                    num_params = len(sig.parameters) - 1 # Subtracting qc parameter
+
+                    if num_params == 1: # single qubit gate
+                        gate_fn(qc_recipe, qubit_index % n)
+                        qubit_index += 1
+                    elif num_params == 2: # two qubit gate with hardcoded indices
+                        gate_fn(qc_recipe, None)
+
+                elif ingredient not in ingredients_map:
+                    print(f"Warning: No gate defined for ingredient '{ingredient}'")
+            state = Statevector.from_instruction(qc_recipe)
+            rho = DensityMatrix(state)
+            # cls.expected_density_matrices[bitstring] = rho.data
+            return rho.data
+        else:
+            print(f"Error: Bitstring '{bitstring}' not found in recipes.")
+            return None
+
+class GameController:
+    debug_on = False # Set to False to enable timers
+    order_queue = []
+    pickup_queue = []
+    ready_food = {}
+    cur_qustomer_id = 1
+    points = 0
+    strikes = 0
+    recipe_qc = QuantumCircuit(3)
+    selected_ingredients = []
     expected_density_matrices = {}
 
+    BITSTRING_TO_ITEM = {
+        "000": "apple pie",
+        "001": "pumpkin pie",
+        "010": "cinnamon roll",
+        "011": "banana bread",
+        "100": "chai latte",
+        "101": "pumpkin spice latte",
+        "110": "matcha latte"
+    }
+    recipes_key = {
+             "000": ["apple", "flour", "sugar", "cinnamon", "butter"],
+             "001": ["pumpkin", "flour", "sugar", "eggs", "cinnamon"],
+             "010": ["cinnamon", "flour", "sugar", "butter", "eggs"],
+             "011": ["banana", "flour", "sugar", "eggs", "butter"],
+             "100": ["chai", "milk", "sugar", "cinnamon"],
+             "101": ["pumpkin", "milk", "sugar", "cinnamon"],
+             "110": ["matcha", "sugar", "milk"],
+             } # apple pie, pumpkin pie, coffee, chai latte, pumpkin spice latte, cinnamon roll, banana bread
+    
+    ingredients_map = { "apple": lambda: (lambda qc, q: qc.rz(np.pi/3, q)), 
+                           "pumpkin": lambda: (lambda qc, q: qc.rx(np.pi/4, q)),
+                           "cinnamon": lambda: (lambda qc, q: qc.p(np.pi*7/11, q)),
+                           "matcha": lambda: (lambda qc, q: qc.ry(np.pi/6, q)),
+                           "chai": lambda: (lambda qc, q: qc.p(np.pi/2, q)),
+                           "banana": lambda: (lambda qc, q: qc.p(np.pi/4, q)), 
+                           "sugar": lambda: (lambda qc, q: qc.cx(1, 2)),
+                           "milk": lambda: (lambda qc, q: qc.cz(2, 1)), 
+                           "eggs": lambda: (lambda qc, q: qc.h(q)), 
+                           "butter": lambda: (lambda qc, q: qc.rx(np.pi/6, q)),
+                           "flour": lambda: (lambda qc, q: qc.rz(np.pi/4, q))
+                        }
 
     log = ["Welcome to the Quantum Qafe!"] # GUI will display this
     lock = threading.RLock() # For thread-safe access to lists/dicts
+    selected_ingredients = []  # collect GUI-selected ingredients
     game_over = False
 
     @classmethod
@@ -261,11 +324,11 @@ class GameController:
         BITSTRING_TO_ITEM = {
         "000": "apple pie",
         "001": "pumpkin pie",
-        "010": "banana bread",
-        "011": "coffee",
+        "010": "cinnamon roll",
+        "011": "banana bread",
         "100": "chai latte",
         "101": "pumpkin spice latte",
-        "110": "cinnamon roll"
+        "110": "matcha latte"
     }
         if not qustomer_index.isdigit():
             cls.log_message(f"Invalid qustomer index: {qustomer_index}. Must be a number.")
@@ -311,38 +374,45 @@ class GameController:
                     
                     qc = qustomer_to_measure.qc
                     n = qustomer_to_measure.n
-                    qc.measure(list(range(1, 2 * n + 1)), list(range(0, 2 * n)))
+                    qc.measure(list(range(2 * n)), list(range(0, 2 * n)))
                     
                     backend = Aer.get_backend('qasm_simulator')
-                    while True:
+                    
+                    max_attempts = 100
+                    attempt = 0
+
+                    while attempt < max_attempts:
+                        attempt += 1
                         counts = backend.run(qc, shots=1).result().get_counts(qc)
                         measurement = list(counts.keys())[0]
-                        measurement_big_endian = measurement[::-1]
-                        if measurement_big_endian[0:n] != '111' and measurement_big_endian[n:2*n] != '111':
+                        if measurement[0:n] != '111' and measurement[n:2*n] != '111':
                             break
                     
-                    print(measurement_big_endian)
-                    order_A = measurement_big_endian[0 : n] # This customer
-                    order_B = measurement_big_endian[n : 2*n] # Partner
+                    print(measurement)
+                    order_A = measurement[2*n - n : 2*n] # This customer
+                    order_B = measurement[0 : n] # Partner
                     
                     # Set both to collapsed
                     qustomer_to_measure.is_collapsed = True
                     partner.is_collapsed = True
                     
-                    # Store collapsed orders
+                    # Store collapsed orders, access this for converting to item names later
                     qustomer_to_measure.collapsed_order = order_A
-                    qustomer_to_measure.item_name = BITSTRING_TO_ITEM.get(order_A, "unknown item")
-                    cls.log_message("Item name assigned:", qustomer_to_measure.item_name)
+                    qustomer_to_measure.item_name = BITSTRING_TO_ITEM.get(order_A)
 
                     partner.collapsed_order = order_B
-                    partner.item_name = BITSTRING_TO_ITEM.get(order_B, "unknown item")
-                    cls.log_message("Item name assigned:", partner.item_name)
+                    partner.item_name = BITSTRING_TO_ITEM.get(order_B)
+                    
+                    # cls.log_message(f"Raw measurement: {measurement}")
+                    cls.log_message(f"Interpreted A: {order_A}, B: {order_B}")
+                    cls.log_message(f"Item A: {qustomer_to_measure.item_name}, Item B: {partner.item_name}")
+
 
                     # --- REQUEST 1 LOGIC ---
                     # Reveal *this* customer's order
                     qustomer_to_measure.order_revealed = True
                     # Keep partner's order *hidden*
-                    partner.order_revealed = False 
+                    partner.order_revealed = True 
                     
                     cls.log_message(f"Collapse! Qustomer #{qustomer_id}'s order is {order_A}.")
                     cls.log_message(f"Qustomer #{partner.id}'s order is now also set (but hidden)!")
@@ -373,12 +443,13 @@ class GameController:
 
 
     @classmethod
-    def prepare_recipe_state(cls, qustomer_to_measure, recipes_key, ingredients_map):
+    def prepare_recipe_state(cls, bitstring, recipes_key, ingredients_map):
         # 1) From the binary bitstring order, identify the menu item from recipes dict
         # 2) Represent each recipe as the (initial/expected) quantum state
-        bitstring = qustomer_to_measure.collapsed_order
+        # 3 ) Store expected density matrix for later comparison
+        # bitstring = qustomer_to_measure.collapsed_order()
         n = 3
-        qc = QuantumCircuit(n)
+        qc_recipe = QuantumCircuit(n)
 
         # for loop that indexes the keys like 000, 001, 010, etc.
         if bitstring in recipes_key:
@@ -396,21 +467,31 @@ class GameController:
                     num_params = len(sig.parameters) - 1 # Subtracting qc parameter
 
                     if num_params == 1: # single qubit gate
-                        gate_fn(qc, qubit_index % n)
+                        gate_fn(qc_recipe, qubit_index % n)
                         qubit_index += 1
                     elif num_params == 2: # two qubit gate with hardcoded indices
-                        gate_fn(qc, None)
+                        gate_fn(qc_recipe, None)
 
                 elif ingredient not in ingredients_map:
                     print(f"Warning: No gate defined for ingredient '{ingredient}'")
-            state = Statevector.from_instruction(qc)
+            state = Statevector.from_instruction(qc_recipe)
             rho = DensityMatrix(state)
             cls.expected_density_matrices[bitstring] = rho.data
+            return rho.data
+
         else:
             print(f"Error: Bitstring '{qustomer_to_measure.collapsed_order}' not found in recipes.")
-            return None
-        return rho.data
-    
+            return None    
+
+    @classmethod
+    def compute_recipe_fidelity(recipe_qc, expected_density_matrix):
+        # compares the player's recipe against the expected density matrix
+        state = Statevector.from_instruction(recipe_qc)
+        rho_player = DensityMatrix(state)
+
+        fidelity = state_fidelity(rho_player, DensityMatrix(expected_density_matrix))
+
+        return fidelity
     
     # user wants to serve food to qustomer with qustomer_index
     @classmethod
@@ -467,6 +548,11 @@ class GameController:
             cls.pickup_queue.remove(qustomer_to_serve)
 
         cls.log_message(f"Served {selected_food} to qustomer #{qustomer_id} (wanted {wanted_order})")
+        
+        cls.recipe_qc = QuantumCircuit(3) # Reset recipe qc
+        cls.selected_ingredients.clear() # Clear selected ingredients
+        cls.log_message(f"Recipe QC and selected ingredients reset for next order.")
+        # cls.log_message(str(cls.recipe_qc.draw('mpl')))
 
         with cls.lock:
             if str(selected_food) == str(wanted_order): # "surprise me" is already replaced
@@ -479,7 +565,7 @@ class GameController:
                 cls.log_message("Order served incorrectly </3")
                 cls.points -= 1
                 cls.strikes += 1
-                if cls.points < 0 or cls.strikes >= 3:
+                if cls.points < 0 and cls.strikes >= 3:
                     cls.log_message("You have no more points left." if cls.points < 0 else "")
                     cls.log_message("Game over! You have made 3 incorrect orders.")
                     cls.game_over = True
@@ -515,13 +601,20 @@ class GameController:
             entangled = random.choice([True, False])
             surprise = random.choice([True, False])
             threading.Thread(target=Qustomer, args=(n, entangled, surprise), daemon=True).start()
-            
+
+
+for bitstring in GameController.recipes_key.keys():
+        rho = GameController.prepare_recipe_state(bitstring, GameController.recipes_key, GameController.ingredients_map)
+        expected_density_matrices[bitstring] = rho
+
+GameController.expected_density_matrices = expected_density_matrices
 
 class Qustomer: 
-    def __init__(self, n, entangled=False, surprise_me=False):
+    def __init__(self, n, entangled=False, surprise_me=False, _is_secondary=False, _primary_qustomer=None):
         self.n = n
         self.entangled_partner = None
         self.collapsed_order = None 
+        self.entangled = entangled
         self.qc = None
         
         self.is_collapsed = False
@@ -704,6 +797,27 @@ def run_game():
     input_serve = InputBox((550, 710, 200, 50), COLOR_TEXT)
     btn_serve = Button((780, 710, 200, 50), "Serve", (0, 0, 150))
 
+    # --- END MODIFIED ---
+
+    # seasonal ingredients buttons / apply gates and transformations
+    btn_apple = Button((250, 340, 90, 40), "apple", (164, 74, 63))
+    btn_banana = Button((350, 340, 90, 40), "banana", (210, 176, 105))
+    btn_chai = Button((450, 340, 90, 40), "chai", (197, 146, 110))
+    btn_cinnamon = Button((550, 340, 110, 40), "cinnamon", (84, 11, 14))
+    btn_pumpkin = Button((670, 340, 100, 40), "pumpkin", (198, 90, 17))
+    btn_matcha = Button((780, 340, 90, 40), "matcha", (116, 161, 46))
+
+    # baking ingredients buttons
+    btn_butter = Button((250, 400, 90, 40), "butter", (255, 223, 102))
+    btn_eggs = Button((350, 400, 90, 40), "eggs", (255, 225, 165))
+    btn_flour = Button((450, 400, 90, 40), "flour", (237, 189, 221))
+    btn_milk = Button((550, 400, 90, 40), "milk", (255, 230, 235))
+    btn_sugar = Button((650, 400, 90, 40), "sugar", (204, 219, 233))
+
+    ingredient_buttons = [btn_apple, btn_banana, btn_chai, btn_cinnamon, btn_pumpkin,
+                             btn_butter, btn_eggs, btn_flour, btn_milk, btn_sugar]
+
+    
     # backend logic
     n = 3 # 2^n menu items
     threading.Thread(target=Qustomer, args=(n, True, False), daemon=True).start()
@@ -736,6 +850,30 @@ def run_game():
                             threading.Thread(target=GameController.prepare_dish, args=(item,), daemon=True).start()
                             input_qook.text = ""
                             input_qook.active = False
+                        
+                        # reset recipe circuit
+                        with GameController.lock:
+                            # find bitstring for the item 
+                            bitstring = None
+                            for k, v in GameController.BITSTRING_TO_ITEM.items():
+                                if v == item:
+                                    bitstring = k
+                                    break
+                            
+                            if bitstring and bitstring in GameController.expected_density_matrices:
+                                expected_rho = GameController.expected_density_matrices[bitstring]
+                                fidelity = compute_recipe_fidelity(GameController.recipe_qc, expected_rho)
+                                score = round(fidelity * 100)
+                                GameController.log_message(f"Fidelity for dish {item}: {fidelity:.3f} -> +{score} points")
+
+                            else:
+                                GameController.log_message(f"No expected recipe found for '{item}")
+
+                            GameController.recipe_qc = QuantumCircuit(3)
+                            GameController.selected_ingredients.clear()
+                        GameController.log_message("Recipe circuit reset - ready for next order")
+                        # GameController.log_message(f"Final recipe circuit: {str(GameController.recipe_qc.draw(fold=-1))}")
+
                     
                     elif btn_measure.is_clicked(event.pos):
                         idx = input_measure.text
@@ -750,6 +888,20 @@ def run_game():
                             threading.Thread(target=GameController.serve_food, args=(idx,), daemon=True).start()
                             input_serve.text = ""
                             input_serve.active = False
+                    for btn in ingredient_buttons:
+                        if btn.is_clicked(event.pos):
+                            ingredient = getattr(btn, 'ingredient', None)
+
+                            if ingredient and ingredient in GameController.ingredients_map:
+                                # 1 retrieve the gate creator or outer lambda
+                                gate_creator = GameController.ingredients_map[ingredient]
+                                gate_func = gate_creator()
+                                target_qubit = 0
+                                gate_func(GameController.recipe_qc, target_qubit) # decide the target qubit based on the order of gate clicked
+                                
+                                with GameController.lock:
+                                    GameController.selected_ingredients.append(ingredient)
+                                GameController.log_message(f"Applied {ingredient} gate to recipe circuit")
 
         screen.fill(COLOR_BG)
         
@@ -783,26 +935,24 @@ def run_game():
             
             y_offset += 35 
 
-        draw_text(screen, "Pickup Queue", title_font, (390, 20), COLOR_TITLE)
+        draw_text(screen, "Pickup Queue", title_font, (380, 20), COLOR_TITLE)
         y_offset = 70
         for qustomer in pickup_queue_copy:
             order_str = qustomer.order
             if qustomer.entangled_partner:
-                if qustomer.order_revealed: 
-                    item_display = getattr(qustomer, "item_name", qustomer.collapsed_order)
-                    order_str = f"Collapsed to {item_display}" 
-                elif qustomer.is_collapsed: # Collapsed but not revealed (2nd partner)
-                    order_str = ("Maximally" if qustomer.maximal else "Minimally") + f" entangled with #{qustomer.entangled_partner.id}"
+                if qustomer.is_collapsed: # Collapsed but not revealed (2nd partner)
+                    #order_str = ("Maximally" if qustomer.maximal else "Minimally") + f" entangled with #{qustomer.entangled_partner.id}"
+                    order_str = f"{qustomer.order}" 
                 else: # Not yet collapsed
                     order_str = qustomer.order # "Entangled w/ #X"
             elif qustomer.is_collapsed:
-                 # order_str = qustomer.order
-                 order_str = getattr(qustomer, "item_name", qustomer.order)
+                 order_str = f"Collapsed to {qustomer.order}" 
+                 # order_str = getattr(qustomer, "item_name", qustomer.order)
             else:
                  # Standard or Surprise Me, not yet measured
                  order_str = f"In Superposition"
             
-            draw_text(screen, f"Qustomer #{qustomer.id} (Order: {order_str})", main_font, (390, y_offset), COLOR_TEXT)
+            draw_text(screen, f"Qustomer #{qustomer.id} (Order: {order_str})", main_font, (380, y_offset), COLOR_TEXT)
             
             bar_y = y_offset + 30
             if qustomer.timer_active:
@@ -815,46 +965,46 @@ def run_game():
                 if percent_left < 0.5: color = COLOR_BAR_MED
                 if percent_left < 0.2: color = COLOR_BAR_LOW
                 
-                pygame.draw.rect(screen, COLOR_BAR_BG, (390, bar_y, BAR_MAX_WIDTH, BAR_HEIGHT))
-                pygame.draw.rect(screen, color, (390, bar_y, bar_current_width, BAR_HEIGHT))
+                pygame.draw.rect(screen, COLOR_BAR_BG, (380, bar_y, BAR_MAX_WIDTH, BAR_HEIGHT))
+                pygame.draw.rect(screen, color, (380, bar_y, bar_current_width, BAR_HEIGHT))
                 y_offset += 25
             
             y_offset += 35 
 
-        draw_text(screen, "Ready Food", title_font, (820, 20), COLOR_TITLE)
+        draw_text(screen, "Ready to Serve", title_font, (920, 20), COLOR_TITLE)
         y_offset = 70
         for item, count in ready_food_copy.items():
-            draw_text(screen, f"Dish {item}: {count} servings", main_font, (820, y_offset), COLOR_TEXT)
+            draw_text(screen, f"Dish {item}: {count} servings", main_font, (920, y_offset), COLOR_TEXT)
             y_offset += 35
 
         # --- Draw Ingredients Legend ---
-        draw_text(screen, "Ingredients", title_font, (50, 270), COLOR_TITLE)
-        draw_text(screen, "Seasonal Items", main_font, (50, 310), COLOR_TEXT)
-        draw_text(screen, "apple", main_font, (250, 310), COLOR_TEXT)
-        draw_text(screen, "banana", main_font, (330, 310), COLOR_TEXT)
-        draw_text(screen, "chai", main_font, (450, 310), COLOR_TEXT)
-        draw_text(screen, "cinnamon", main_font, (530, 310), COLOR_TEXT)
-        draw_text(screen, "coffee", main_font, (670, 310), COLOR_TEXT)
-        draw_text(screen, "pumpkin", main_font, (760, 310), COLOR_TEXT)
+        draw_text(screen, "Ingredients", title_font, (50, 300), COLOR_TITLE)
+        draw_text(screen, "Seasonal Items", main_font, (50, 340), COLOR_TEXT)
+        # draw_text(screen, "apple", main_font, (250, 340), COLOR_TEXT)
+        # draw_text(screen, "banana", main_font, (340, 340), COLOR_TEXT)
+        # draw_text(screen, "chai", main_font, (450, 340), COLOR_TEXT)
+        # draw_text(screen, "cinnamon", main_font, (530, 340), COLOR_TEXT)
+        # draw_text(screen, "coffee", main_font, (670, 340), COLOR_TEXT)
+        # draw_text(screen, "pumpkin", main_font, (760, 340), COLOR_TEXT)
 
 
-        draw_text(screen, "Baking", main_font, (50, 350), COLOR_TEXT)
-        draw_text(screen, "butter", main_font, (250, 350), COLOR_TEXT)
-        draw_text(screen, "eggs", main_font, (330, 350), COLOR_TEXT)
-        draw_text(screen, "flour", main_font, (410, 350), COLOR_TEXT)
-        draw_text(screen, "milk", main_font, (490, 350), COLOR_TEXT)
-        draw_text(screen, "sugar", main_font, (570, 350), COLOR_TEXT)
+        draw_text(screen, "Baking", main_font, (50, 400), COLOR_TEXT)
+        # draw_text(screen, "butter", main_font, (250, 380), COLOR_TEXT)
+        # draw_text(screen, "eggs", main_font, (340, 380), COLOR_TEXT)
+        # draw_text(screen, "flour", main_font, (420, 380), COLOR_TEXT)
+        # draw_text(screen, "milk", main_font, (495, 380), COLOR_TEXT)
+        # draw_text(screen, "sugar", main_font, (570, 380), COLOR_TEXT)
 
         # --- Draw Score and Log ---
-        draw_text(screen, "Score", title_font, (1070, 20), COLOR_TITLE)
-        draw_text(screen, f"Points: {points_copy}", main_font, (1070, 70), COLOR_SUCCESS)
-        draw_text(screen, f"Strikes: {strikes_copy}", main_font, (1070, 110), COLOR_STRIKE)
+        draw_text(screen, "Score", title_font, (1070, 300), COLOR_TITLE)
+        draw_text(screen, f"Points: {points_copy}", main_font, (1070, 340), COLOR_SUCCESS)
+        draw_text(screen, f"Strikes: {strikes_copy}", main_font, (1070, 380), COLOR_STRIKE)
 
-        draw_text(screen, "Game Log", title_font, (50, 430), COLOR_TITLE)
-        log_rect = pygame.Rect(50, 470, 450, 280)
+        draw_text(screen, "Game Log", title_font, (50, 465), COLOR_TITLE)
+        log_rect = pygame.Rect(50, 510, 470, 280)
         pygame.draw.rect(screen, (255, 255, 255), log_rect)
         pygame.draw.rect(screen, (0,0,0), log_rect, 2)
-        y_offset = 490
+        y_offset = 530
         line_height = 25
         max_width = log_rect.width - 40 
 
@@ -889,6 +1039,32 @@ def run_game():
         btn_measure.draw(screen, main_font)   # New
         input_serve.draw(screen, main_font)
         btn_serve.draw(screen, main_font)
+
+        # ingredient buttons
+        btn_apple.draw(screen, main_font)
+        btn_banana.draw(screen, main_font)
+        btn_chai.draw(screen, main_font)
+        btn_cinnamon.draw(screen, main_font)
+        btn_pumpkin.draw(screen, main_font)
+        btn_matcha.draw(screen, main_font)
+
+        btn_butter.draw(screen, main_font)
+        btn_eggs.draw(screen, main_font)
+        btn_flour.draw(screen, main_font)
+        btn_milk.draw(screen, main_font)
+        btn_sugar.draw(screen, main_font)
+
+        btn_apple.ingredient = "apple"
+        btn_banana.ingredient = "banana"
+        btn_chai.ingredient = "chai"
+        btn_cinnamon.ingredient = "cinnamon"
+        btn_pumpkin.ingredient = "pumpkin"
+        btn_matcha.ingredient = "matcha"
+        btn_butter.ingredient = "butter"
+        btn_eggs.ingredient = "eggs"
+        btn_flour.ingredient = "flour"
+        btn_milk.ingredient = "milk"
+        btn_sugar.ingredient = "sugar"
         
         draw_text(screen, "Qustomer #", log_font, (550, 605), COLOR_TEXT) # Label for measure
         draw_text(screen, "Dish ID", log_font, (550, 685), COLOR_TEXT) 
